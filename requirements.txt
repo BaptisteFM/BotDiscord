@@ -1,4 +1,4 @@
-discord.py
+discord.py==2.5.2
 python-dotenv
 aiofiles
 pymongo[srv]==3.12

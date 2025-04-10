@@ -9,6 +9,7 @@ import asyncio
 import textwrap
 import time
 import datetime
+os.environ["PORT"] = "10000"  # Empêche Render de relancer à cause du port
 
 # ========================================
 # 📁 Chemins des fichiers persistants
@@ -865,21 +866,44 @@ async def clear(interaction: discord.Interaction, nombre: int):
 
 
 # ========================================
-# ✅ Événement on_ready — Connexion sécurisée
+# 🌐 Serveur HTTP de "keep alive" (Render)
 # ========================================
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import socket
 
-@bot.event
-async def on_ready():
-    print(f"✅ Connecté en tant que {bot.user} (ID: {bot.user.id})")
-    await bot.wait_until_ready()
+class KeepAliveHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'Bot actif et en ligne.')
 
+    def log_message(self, format, *args):
+        return  # Supprime les logs HTTP dans la console
+
+
+def keep_alive(port=10000):
     try:
-        # 🔁 Lancer la boucle de messages programmés
-        if not check_programmed_messages.is_running():
-            check_programmed_messages.start()
-            print("🔄 Boucle check_programmed_messages démarrée")
+        server = HTTPServer(('0.0.0.0', port), KeepAliveHandler)
+        thread = threading.Thread(target=server.serve_forever, name="KeepAliveThread")
+        thread.daemon = True
+        thread.start()
+        print(f"✅ Serveur keep-alive lancé sur le port {port}")
+    except OSError as e:
+        print(f"❌ Impossible de lancer le serveur HTTP keep-alive : {e}")
     except Exception as e:
-        print(f"❌ Erreur lors du démarrage de la boucle : {e}")
+        print(f"❌ Erreur inconnue dans keep_alive : {e}")
+
+# Lancer le serveur dès le démarrage
+keep_alive()
+
+
+
+
+
+
+
+
 
 
 # ========================================
