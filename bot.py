@@ -536,15 +536,14 @@ async def ajouter_titre(interaction: discord.Interaction, xp: int, titre: str):
 
 
 
-
 # ========================================
-# ⏰ Système de messages programmés (optimisé + modal modification)
+# ⏰ Système de messages programmés — version blindée
 # ========================================
 
-import datetime, time, os, json, textwrap
-from discord.ext import tasks
-from discord import app_commands, TextStyle
+import os, json, time, datetime, textwrap
+from discord import TextStyle, app_commands
 from discord.ui import Modal, TextInput
+from discord.ext import tasks
 
 MSG_FILE = "messages_programmes.json"
 
@@ -561,9 +560,12 @@ def save_programmed_messages():
     with open(MSG_FILE, "w") as f:
         json.dump(bot.programmed_messages, f, indent=4)
 
-# Boucle vérification régulière
+# ========================================
+# 🔁 Boucle de vérification toutes les minutes
+# ========================================
 @tasks.loop(seconds=60)
 async def check_programmed_messages():
+    await bot.wait_until_ready()
     now = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
     to_remove = []
 
@@ -574,7 +576,7 @@ async def check_programmed_messages():
                 try:
                     await channel.send(textwrap.dedent(data["message"]))
                 except Exception as e:
-                    print(f"❌ Erreur envoi message programmé {key} : {e}")
+                    print(f"❌ Erreur envoi message [{key}] : {e}")
 
             if data["type"] == "once":
                 to_remove.append(key)
@@ -591,9 +593,8 @@ async def check_programmed_messages():
     save_programmed_messages()
 
 # ========================================
-# 📅 Modal de création
+# 🗓️ Modal de création
 # ========================================
-
 class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
     def __init__(self, salon, type, date_heure):
         super().__init__(timeout=None)
@@ -622,14 +623,16 @@ class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
                 "next": self.date_heure
             }
             save_programmed_messages()
-            await interaction.followup.send(f"✅ Message planifié pour {self.date_heure} ({self.type}) dans {self.salon.mention}", ephemeral=True)
+            await interaction.followup.send(
+                f"✅ Message planifié pour **{self.date_heure}** ({self.type}) dans {self.salon.mention}",
+                ephemeral=True
+            )
         except Exception as e:
             await interaction.followup.send(f"❌ Erreur : {str(e)}", ephemeral=True)
 
 # ========================================
-# 📅 Commande /programmer_message
+# ✅ /programmer_message
 # ========================================
-
 @tree.command(name="programmer_message", description="Planifie un message automatique")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(
@@ -647,9 +650,8 @@ async def programmer_message(interaction: discord.Interaction, salon: discord.Te
     await interaction.response.send_modal(ProgrammerMessageModal(salon, type, date_heure))
 
 # ========================================
-# 🗑️ Commande /supprimer_message
+# 🗑️ /supprimer_message
 # ========================================
-
 @tree.command(name="supprimer_message", description="Supprime un message programmé")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(message_id="ID du message programmé à supprimer")
@@ -662,10 +664,9 @@ async def supprimer_message(interaction: discord.Interaction, message_id: str):
         await interaction.response.send_message("❌ ID non trouvé.", ephemeral=True)
 
 # ========================================
-# 📋 Commande /messages_programmes
+# 📋 /messages_programmes
 # ========================================
-
-@tree.command(name="messages_programmes", description="Affiche la liste des messages programmés")
+@tree.command(name="messages_programmes", description="Affiche les messages programmés")
 @app_commands.checks.has_permissions(administrator=True)
 async def messages_programmes(interaction: discord.Interaction):
     if not bot.programmed_messages:
@@ -679,18 +680,17 @@ async def messages_programmes(interaction: discord.Interaction):
     await interaction.response.send_message(texte, ephemeral=True)
 
 # ========================================
-# ✏️ Commande /modifier_message_programme (AVEC MODAL)
+# ✏️ /modifier_message_programme (via modal)
 # ========================================
-
 class ModifierMessageModal(Modal, title="✏️ Modifier un message programmé"):
     def __init__(self, message_id):
         super().__init__(timeout=None)
         self.message_id = message_id
 
         self.nouveau_contenu = TextInput(
-            label="Nouveau message",
+            label="Nouveau contenu du message",
             style=TextStyle.paragraph,
-            placeholder="Saisis ici le nouveau contenu...",
+            placeholder="Entre le nouveau message ici...",
             required=True,
             max_length=2000,
             custom_id="modifier_programme_contenu"
@@ -702,19 +702,20 @@ class ModifierMessageModal(Modal, title="✏️ Modifier un message programmé")
         if self.message_id in bot.programmed_messages:
             bot.programmed_messages[self.message_id]["message"] = textwrap.dedent(self.nouveau_contenu.value)
             save_programmed_messages()
-            await interaction.followup.send("✅ Message programmé mis à jour avec succès.", ephemeral=True)
+            await interaction.followup.send("✅ Message modifié avec succès.", ephemeral=True)
         else:
-            await interaction.followup.send("❌ ID du message introuvable.", ephemeral=True)
+            await interaction.followup.send("❌ ID introuvable.", ephemeral=True)
 
 @tree.command(name="modifier_message_programme", description="Modifie un message programmé via un modal")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(message_id="ID du message à modifier")
 async def modifier_message_programme(interaction: discord.Interaction, message_id: str):
     if message_id not in bot.programmed_messages:
-        await interaction.response.send_message("❌ ID introuvable.", ephemeral=True)
+        await interaction.response.send_message("❌ ID non trouvé.", ephemeral=True)
         return
 
     await interaction.response.send_modal(ModifierMessageModal(message_id))
+
 
 
 
