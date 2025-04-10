@@ -10,12 +10,30 @@ import time
 import asyncio
 import textwrap
 import datetime
+from bson import ObjectId
 
-# Charger le .env et récupérer le TOKEN
+# ========================================
+# 🔌 Connexion à MongoDB Atlas
+# ========================================
+from pymongo import MongoClient
+
+# Charger les variables d'environnement
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
+MONGODB_URI = os.getenv("MONGODB_URI")
 
-# Activer les intents nécessaires
+# Connexion MongoDB
+mongo_client = MongoClient(MONGODB_URI)
+
+# Base et collections MongoDB
+mongo_db = mongo_client["discord_bot"]
+xp_collection = mongo_db["xp"]
+programmed_messages_collection = mongo_db["programmed_messages"]
+defis_collection = mongo_db["defis"]
+
+# ========================================
+# ⚙️ Intents et Bot setup
+# ========================================
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -23,12 +41,11 @@ intents.guilds = True
 intents.reactions = True
 intents.voice_states = True
 
-# Création du bot
 class MyBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=intents)
         self.reaction_roles = {}
-        self.xp_data = {}
+        self.vocal_start_times = {}
         self.xp_config = {
             "xp_per_message": 10,
             "xp_per_minute_vocal": 5,
@@ -41,20 +58,28 @@ class MyBot(commands.Bot):
             "badges": {},                # {xp: badge}
             "titres": {}                 # {xp: titre}
         }
-        self.vocal_start_times = {}
-        self.programmed_messages = []
-        self.XP_FILE = "xp.json"
+        self.programmed_messages = {}
 
     async def setup_hook(self):
+    # ✅ Vérification MongoDB au lancement
+        try:
+            mongo_client.admin.command("ping")
+            print("✅ Connexion MongoDB confirmée.")
+        except Exception as e:
+            print(f"❌ Erreur MongoDB : {e}")
+
+        # 🌐 Synchronisation des slash commands
         try:
             synced = await self.tree.sync(guild=None)
             print(f"🌐 {len(synced)} commandes slash synchronisées (globalement)")
         except Exception as e:
             print(f"❌ Erreur synchronisation : {e}")
 
+
 # Initialisation du bot
 bot = MyBot()
-tree = bot.tree  # Raccourci pour les commandes slash
+tree = bot.tree
+
 
 
 # =======================================
@@ -213,73 +238,96 @@ async def supprimer_reaction_role(interaction: discord.Interaction, message_id: 
 
 
 # ========================================
-# 🎭 Gestion automatique des rôles via réactions
+# 🎭 Gestion automatique des rôles via réactions (blindée + emoji custom)
 # ========================================
 
 @bot.event
 async def on_raw_reaction_add(payload):
     if payload.user_id == bot.user.id:
         return
+
     guild = bot.get_guild(payload.guild_id)
+    if guild is None:
+        return
+
     member = guild.get_member(payload.user_id)
+    if member is None or member.bot:
+        return
+
+    # ✅ Gestion correcte des emojis custom
+    emoji_key = (
+        str(payload.emoji) if not payload.emoji.is_custom_emoji()
+        else f"<:{payload.emoji.name}:{payload.emoji.id}>"
+    )
 
     data = bot.reaction_roles.get(payload.message_id)
-    if data:
-        if isinstance(data, dict):
-            role_id = data.get(str(payload.emoji)) or data.get("role_id") if str(payload.emoji) == data.get("emoji") else None
-            if role_id:
-                role = guild.get_role(int(role_id))
-                if role and member:
-                    await member.add_roles(role)
+    if isinstance(data, dict):
+        role_id = data.get(emoji_key)
+        if role_id:
+            role = guild.get_role(int(role_id))
+            if role:
+                try:
+                    await member.add_roles(role, reason="Réaction ajoutée")
+                except Exception as e:
+                    print(f"❌ Erreur ajout rôle : {e}")
 
 @bot.event
 async def on_raw_reaction_remove(payload):
     if payload.user_id == bot.user.id:
         return
+
     guild = bot.get_guild(payload.guild_id)
+    if guild is None:
+        return
+
     member = guild.get_member(payload.user_id)
+    if member is None or member.bot:
+        return
+
+    # ✅ Gestion correcte des emojis custom
+    emoji_key = (
+        str(payload.emoji) if not payload.emoji.is_custom_emoji()
+        else f"<:{payload.emoji.name}:{payload.emoji.id}>"
+    )
 
     data = bot.reaction_roles.get(payload.message_id)
-    if data:
-        if isinstance(data, dict):
-            role_id = data.get(str(payload.emoji)) or data.get("role_id") if str(payload.emoji) == data.get("emoji") else None
-            if role_id:
-                role = guild.get_role(int(role_id))
-                if role and member:
-                    await member.remove_roles(role)
+    if isinstance(data, dict):
+        role_id = data.get(emoji_key)
+        if role_id:
+            role = guild.get_role(int(role_id))
+            if role:
+                try:
+                    await member.remove_roles(role, reason="Réaction retirée")
+                except Exception as e:
+                    print(f"❌ Erreur retrait rôle : {e}")
+
+
 
 
 
 # ========================================
-# 🧠 Système XP : XP automatique messages + vocal
+# 🧠 Système XP MongoDB : Messages + Vocal
 # ========================================
 
-# Chargement des données d'XP
-XP_FILE = "xp.json"
-if os.path.exists(XP_FILE):
-    with open(XP_FILE, "r") as f:
-        bot.xp_data = json.load(f)
-else:
-    with open(XP_FILE, "w") as f:
-        json.dump({}, f)
-
-# Sauvegarde des données d'XP
-def save_xp():
-    with open(XP_FILE, "w") as f:
-        json.dump(bot.xp_data, f, indent=4)
-
-# Ajouter de l'XP à un membre
+# ✅ Ajoute de l'XP à un membre
 def add_xp(user_id, amount):
     user_id = str(user_id)
-    bot.xp_data[user_id] = bot.xp_data.get(user_id, 0) + amount
-    save_xp()
-    return bot.xp_data[user_id]
+    existing = xp_collection.find_one({"user_id": user_id})
+    if existing:
+        new_total = existing["xp"] + amount
+        xp_collection.update_one({"user_id": user_id}, {"$set": {"xp": new_total}})
+    else:
+        new_total = amount
+        xp_collection.insert_one({"user_id": user_id, "xp": new_total})
+    return new_total
 
-# Récupérer l'XP actuel d'un membre
+# ✅ Récupère l'XP actuel d'un membre
 def get_xp(user_id):
-    return bot.xp_data.get(str(user_id), 0)
+    user_id = str(user_id)
+    result = xp_collection.find_one({"user_id": user_id})
+    return result["xp"] if result else 0
 
-# 🎯 Ajout d'XP lors des messages
+# 🎯 Ajoute de l'XP lors des messages
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -290,14 +338,14 @@ async def on_message(message):
     total_xp = int(xp * multiplier)
     current_xp = add_xp(message.author.id, total_xp)
 
-    # Attribution de rôle si palier atteint
+    # 🔓 Attribution de rôle si palier atteint
     for level_xp, role_id in bot.xp_config["level_roles"].items():
         if current_xp >= int(level_xp):
             role = message.guild.get_role(int(role_id))
             if role and role not in message.author.roles:
                 await message.author.add_roles(role, reason="XP atteint")
 
-                # Annonce de niveau
+                # 📢 Annonce de niveau
                 if bot.xp_config["announcement_channel"]:
                     channel = bot.get_channel(int(bot.xp_config["announcement_channel"]))
                     if channel:
@@ -306,7 +354,7 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-# ⏱️ Ajout d'XP vocal automatique
+# 🎙️ Ajoute de l'XP vocal automatiquement
 @bot.event
 async def on_voice_state_update(member, before, after):
     if not before.channel and after.channel:
@@ -335,6 +383,7 @@ async def on_voice_state_update(member, before, after):
 
 
 
+
 # ========================================
 # 📊 Fonctions XP membres : /xp et /leaderboard
 # ========================================
@@ -352,12 +401,14 @@ async def xp(interaction: discord.Interaction):
         await interaction.response.send_message("❌ Tu n'as pas encore assez d'XP pour voir ton profil.", ephemeral=True)
         return
 
+    # 🔰 Cherche le bon badge
     badge = ""
     for seuil, b in sorted(bot.xp_config["badges"].items(), key=lambda x: int(x[0]), reverse=True):
         if user_xp >= int(seuil):
             badge = b
             break
 
+    # 🏷️ Cherche le bon titre
     titre = ""
     for seuil, t in sorted(bot.xp_config["titres"].items(), key=lambda x: int(x[0]), reverse=True):
         if user_xp >= int(seuil):
@@ -386,48 +437,79 @@ async def leaderboard(interaction: discord.Interaction):
         await interaction.response.send_message("❌ Tu n'as pas encore assez d'XP pour voir le classement.", ephemeral=True)
         return
 
-    classement = sorted(bot.xp_data.items(), key=lambda x: x[1], reverse=True)[:10]
-    lignes = []
-    for i, (user_id, xp) in enumerate(classement):
-        membre = interaction.guild.get_member(int(user_id))
-        if membre:
-            lignes.append(f"{i+1}. {membre.display_name} — {xp} XP")
+    # 📊 Récupération du classement depuis MongoDB
+    classement = list(xp_collection.find().sort("xp", -1).limit(10))
 
-    texte = textwrap.dedent(f"""
-        🏆 **Top 10 XP :**
-        {'\n'.join(lignes)}
-    """)
+    lignes = []
+    for i, record in enumerate(classement):
+        membre = interaction.guild.get_member(int(record["user_id"]))
+        if membre:
+            lignes.append(f"{i+1}. {membre.display_name} — {record['xp']} XP")
+        else:
+            lignes.append(f"{i+1}. (Utilisateur inconnu) — {record['xp']} XP")
+
+    if not lignes:
+        texte = "Aucun membre avec de l'XP pour le moment."
+    else:
+        texte = textwrap.dedent(f"""
+            🏆 **Top 10 XP :**
+            {'\n'.join(lignes)}
+        """)
 
     await interaction.response.send_message(texte.strip(), ephemeral=True)
 
 
 
 
-
-
 # ========================================
-# 🛠️ Commandes ADMIN : configuration du système XP
+# 🛠️ Commandes ADMIN : configuration du système XP (MongoDB)
 # ========================================
 
+from bson.objectid import ObjectId  # Au cas où tu l'utiliserais dans d'autres commandes plus tard
+
+# ----------------------------------------
+# ========================================
+# 🛠️ Commande /add_xp — version blindée MongoDB
+# ========================================
 @bot.tree.command(name="add_xp", description="Ajoute de l'XP à un membre (admin)")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(member="Membre ciblé", amount="Quantité d'XP à ajouter")
 async def add_xp_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
-    total = add_xp(member.id, amount)
-    texte = textwrap.dedent(f"""
-        ✅ {amount} XP ajoutés à {member.mention}
-        🔹 Total : **{total} XP**
-    """)
-    await interaction.response.send_message(texte.strip(), ephemeral=True)
+    try:
+        user_id = str(member.id)
+
+        # Vérifie si l'utilisateur a déjà un enregistrement
+        user_data = xp_collection.find_one({"user_id": user_id})
+        new_total = (user_data["xp"] if user_data else 0) + amount
+
+        # Mets à jour ou insère l'entrée
+        xp_collection.update_one(
+            {"user_id": user_id},
+            {"$set": {"xp": new_total}},
+            upsert=True
+        )
+
+        texte = textwrap.dedent(f"""
+            ✅ {amount} XP ajoutés à {member.mention}
+            🔹 Total : **{new_total} XP**
+        """)
+        await interaction.response.send_message(texte.strip(), ephemeral=True)
+
+    except Exception as e:
+        await interaction.response.send_message(
+            f"❌ Une erreur est survenue lors de l'ajout d'XP : {str(e)}",
+            ephemeral=True
+        )
+
 
 # ----------------------------------------
-
 @bot.tree.command(name="set_xp_config", description="Modifie l'XP gagné par message et en vocal")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(xp_per_message="XP/message", xp_per_minute_vocal="XP/minute vocal")
 async def set_xp_config(interaction: discord.Interaction, xp_per_message: int, xp_per_minute_vocal: int):
     bot.xp_config["xp_per_message"] = xp_per_message
     bot.xp_config["xp_per_minute_vocal"] = xp_per_minute_vocal
+
     texte = textwrap.dedent(f"""
         ✅ XP configuré :
         • 💬 Messages : **{xp_per_message} XP**
@@ -436,182 +518,143 @@ async def set_xp_config(interaction: discord.Interaction, xp_per_message: int, x
     await interaction.response.send_message(texte.strip(), ephemeral=True)
 
 # ----------------------------------------
-
 @bot.tree.command(name="set_xp_role", description="Définit un rôle à débloquer à partir d'un seuil d'XP")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(xp="XP requis", role="Rôle à attribuer")
 async def set_xp_role(interaction: discord.Interaction, xp: int, role: discord.Role):
     bot.xp_config["level_roles"][str(xp)] = role.id
-    texte = textwrap.dedent(f"""
-        ✅ Le rôle **{role.name}** sera attribué à partir de **{xp} XP**
-    """)
-    await interaction.response.send_message(texte.strip(), ephemeral=True)
+    await interaction.response.send_message(
+        f"✅ Le rôle **{role.name}** sera attribué à partir de **{xp} XP**",
+        ephemeral=True
+    )
 
 # ----------------------------------------
-
 @bot.tree.command(name="set_xp_boost", description="Ajoute un multiplicateur d'XP à un salon")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(channel="Salon ciblé", multiplier="Ex : 2.0 = XP x2")
 async def set_xp_boost(interaction: discord.Interaction, channel: discord.TextChannel, multiplier: float):
     bot.xp_config["multipliers"][str(channel.id)] = multiplier
-    texte = textwrap.dedent(f"""
-        ✅ Multiplicateur **x{multiplier}** appliqué à {channel.mention}
-    """)
-    await interaction.response.send_message(texte.strip(), ephemeral=True)
+    await interaction.response.send_message(
+        f"✅ Multiplicateur **x{multiplier}** appliqué à {channel.mention}",
+        ephemeral=True
+    )
 
 # ----------------------------------------
-
 @bot.tree.command(name="set_salon_annonce_niveau", description="Définit le salon où sont envoyées les annonces de niveau")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(channel="Salon d'annonce")
 async def set_salon_annonce(interaction: discord.Interaction, channel: discord.TextChannel):
     bot.xp_config["announcement_channel"] = str(channel.id)
-    texte = textwrap.dedent(f"""
-        ✅ Les annonces de niveau seront envoyées dans {channel.mention}
-    """)
-    await interaction.response.send_message(texte.strip(), ephemeral=True)
+    await interaction.response.send_message(
+        f"✅ Les annonces de niveau seront envoyées dans {channel.mention}",
+        ephemeral=True
+    )
 
 # ----------------------------------------
-
 @bot.tree.command(name="set_message_annonce_niveau", description="Modifie le message d’annonce de niveau")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(message="Utilise {mention} et {xp} comme variables")
 async def set_message_annonce(interaction: discord.Interaction, message: str):
     bot.xp_config["announcement_message"] = message
-    texte = textwrap.dedent(f"""
-        ✅ Message d'annonce de niveau mis à jour !
-
-        💬 **Aperçu :**
-        {message.replace('{mention}', interaction.user.mention).replace('{xp}', '1234')}
-    """)
-    await interaction.response.send_message(texte.strip(), ephemeral=True)
+    preview = message.replace("{mention}", interaction.user.mention).replace("{xp}", "1234")
+    await interaction.response.send_message(
+        f"✅ Message d'annonce mis à jour !\n\n💬 **Aperçu :**\n{preview}",
+        ephemeral=True
+    )
 
 # ----------------------------------------
-
 @bot.tree.command(name="set_channel_xp_commands", description="Définit le salon pour les commandes /xp et /leaderboard")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(channel="Salon autorisé")
 async def set_channel_xp(interaction: discord.Interaction, channel: discord.TextChannel):
     bot.xp_config["xp_command_channel"] = str(channel.id)
-    texte = textwrap.dedent(f"""
-        ✅ Les commandes /xp et /leaderboard seront utilisables uniquement dans {channel.mention}
-    """)
-    await interaction.response.send_message(texte.strip(), ephemeral=True)
+    await interaction.response.send_message(
+        f"✅ Les commandes XP sont maintenant limitées à {channel.mention}",
+        ephemeral=True
+    )
 
 # ----------------------------------------
-
 @bot.tree.command(name="set_minimum_xp_command", description="XP minimum requis pour voir /xp ou /leaderboard")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(min_xp="XP minimum requis")
 async def set_minimum_xp(interaction: discord.Interaction, min_xp: int):
     bot.xp_config["xp_command_min_xp"] = min_xp
-    texte = textwrap.dedent(f"""
-        ✅ Il faut maintenant **{min_xp} XP** pour accéder aux commandes /xp et /leaderboard
-    """)
-    await interaction.response.send_message(texte.strip(), ephemeral=True)
+    await interaction.response.send_message(
+        f"✅ Il faut maintenant **{min_xp} XP** pour voir les commandes /xp et /leaderboard",
+        ephemeral=True
+    )
 
 # ----------------------------------------
-
 @bot.tree.command(name="ajouter_badge", description="Définit un badge à débloquer à partir d'un certain XP")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(xp="XP requis", badge="Nom ou emoji du badge")
 async def ajouter_badge(interaction: discord.Interaction, xp: int, badge: str):
     bot.xp_config["badges"][str(xp)] = badge
-    texte = textwrap.dedent(f"""
-        ✅ Badge **{badge}** attribué à partir de **{xp} XP**
-    """)
-    await interaction.response.send_message(texte.strip(), ephemeral=True)
+    await interaction.response.send_message(
+        f"✅ Badge **{badge}** ajouté à partir de **{xp} XP**",
+        ephemeral=True
+    )
 
 # ----------------------------------------
-
 @bot.tree.command(name="ajouter_titre", description="Définit un titre à débloquer à partir d'un certain XP")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(xp="XP requis", titre="Titre à débloquer")
 async def ajouter_titre(interaction: discord.Interaction, xp: int, titre: str):
     bot.xp_config["titres"][str(xp)] = titre
-    texte = textwrap.dedent(f"""
-        ✅ Titre **{titre}** attribué à partir de **{xp} XP**
-    """)
-    await interaction.response.send_message(texte.strip(), ephemeral=True)
+    await interaction.response.send_message(
+        f"✅ Titre **{titre}** ajouté à partir de **{xp} XP**",
+        ephemeral=True
+    )
+
 
 
 
 # ========================================
-# ⏰ Système de messages programmés — version ultra-fiable
+# ⏰ Système de messages programmés — MONGODB
 # ========================================
 
-import os, json, time, datetime, textwrap
 from discord import TextStyle, app_commands
 from discord.ui import Modal, TextInput
 from discord.ext import tasks
+import datetime, textwrap, time
 
-MSG_FILE = "messages_programmes.json"
-
-# Chargement initial
-def load_programmed_messages():
-    try:
-        if os.path.exists(MSG_FILE):
-            with open(MSG_FILE, "r") as f:
-                return json.load(f)
-        else:
-            return {}
-    except Exception as e:
-        print(f"❌ Erreur lors du chargement de {MSG_FILE} : {e}")
-        return {}
-
-def save_programmed_messages():
-    try:
-        with open(MSG_FILE, "w") as f:
-            json.dump(bot.programmed_messages, f, indent=4)
-    except Exception as e:
-        print(f"❌ Erreur lors de la sauvegarde de {MSG_FILE} : {e}")
-
-bot.programmed_messages = load_programmed_messages()
-
-# ========================================
 # 🔁 Boucle de vérification
-# ========================================
 @tasks.loop(seconds=30)
 async def check_programmed_messages():
     await bot.wait_until_ready()
     now = datetime.datetime.now()
     now_str = now.strftime("%d/%m/%Y %H:%M")
 
-    to_remove = []
-
-    for key, data in list(bot.programmed_messages.items()):
-        scheduled_time = data.get("next")
-        if scheduled_time == now_str:
+    messages = programmed_messages_collection.find()
+    for msg in messages:
+        if msg["next"] == now_str:
             try:
-                channel = bot.get_channel(int(data["channel_id"]))
+                channel = bot.get_channel(int(msg["channel_id"]))
                 if channel:
-                    await channel.send(textwrap.dedent(data["message"]))
-                    print(f"📤 Message programmé envoyé dans {channel} (ID: {key})")
+                    await channel.send(textwrap.dedent(msg["message"]))
+                    print(f"📤 Message programmé envoyé dans {channel} (ID Mongo: {msg['_id']})")
             except Exception as e:
-                print(f"❌ Erreur lors de l'envoi du message [{key}] : {e}")
+                print(f"❌ Erreur lors de l'envoi du message [{msg['_id']}] : {e}")
 
-            if data["type"] == "once":
-                to_remove.append(key)
+            if msg["type"] == "once":
+                programmed_messages_collection.delete_one({"_id": msg["_id"]})
             else:
                 try:
-                    current = datetime.datetime.strptime(data["next"], "%d/%m/%Y %H:%M")
-                    if data["type"] == "daily":
+                    current = datetime.datetime.strptime(msg["next"], "%d/%m/%Y %H:%M")
+                    if msg["type"] == "daily":
                         current += datetime.timedelta(days=1)
-                    elif data["type"] == "weekly":
+                    elif msg["type"] == "weekly":
                         current += datetime.timedelta(weeks=1)
-                    bot.programmed_messages[key]["next"] = current.strftime("%d/%m/%Y %H:%M")
+                    new_date = current.strftime("%d/%m/%Y %H:%M")
+                    programmed_messages_collection.update_one(
+                        {"_id": msg["_id"]},
+                        {"$set": {"next": new_date}}
+                    )
                 except Exception as e:
-                    print(f"❌ Erreur lors du recalcul de la prochaine date pour [{key}] : {e}")
-                    to_remove.append(key)
+                    print(f"❌ Erreur recalcul date [{msg['_id']}] : {e}")
+                    programmed_messages_collection.delete_one({"_id": msg["_id"]})
 
-    for key in to_remove:
-        del bot.programmed_messages[key]
-
-    save_programmed_messages()
-
-# ========================================
-# 🗓️ Modal de création
-# ========================================
+# 📥 Modal de création
 class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
     def __init__(self, salon, type, date_heure):
         super().__init__(timeout=None)
@@ -624,22 +667,20 @@ class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
             style=TextStyle.paragraph,
             placeholder="Tape ici ton message à programmer...",
             required=True,
-            max_length=2000,
-            custom_id="programmer_message_contenu"
+            max_length=2000
         )
         self.add_item(self.contenu)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         try:
-            key = str(int(time.time()))
-            bot.programmed_messages[key] = {
+            doc = {
                 "channel_id": str(self.salon.id),
                 "message": textwrap.dedent(self.contenu.value),
                 "type": self.type.lower(),
                 "next": self.date_heure
             }
-            save_programmed_messages()
+            result = programmed_messages_collection.insert_one(doc)
             await interaction.followup.send(
                 f"✅ Message planifié pour **{self.date_heure}** ({self.type}) dans {self.salon.mention}",
                 ephemeral=True
@@ -647,9 +688,7 @@ class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
         except Exception as e:
             await interaction.followup.send(f"❌ Erreur : {str(e)}", ephemeral=True)
 
-# ========================================
 # ✅ /programmer_message
-# ========================================
 @tree.command(name="programmer_message", description="Planifie un message automatique")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(
@@ -666,39 +705,34 @@ async def programmer_message(interaction: discord.Interaction, salon: discord.Te
 
     await interaction.response.send_modal(ProgrammerMessageModal(salon, type, date_heure))
 
-# ========================================
 # 🗑️ /supprimer_message
-# ========================================
 @tree.command(name="supprimer_message", description="Supprime un message programmé")
 @app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(message_id="ID du message programmé à supprimer")
+@app_commands.describe(message_id="ID MongoDB du message à supprimer")
 async def supprimer_message(interaction: discord.Interaction, message_id: str):
-    if message_id in bot.programmed_messages:
-        del bot.programmed_messages[message_id]
-        save_programmed_messages()
-        await interaction.response.send_message("✅ Message supprimé", ephemeral=True)
+    from bson import ObjectId
+    result = programmed_messages_collection.delete_one({"_id": ObjectId(message_id)})
+    if result.deleted_count > 0:
+        await interaction.response.send_message("✅ Message supprimé.", ephemeral=True)
     else:
         await interaction.response.send_message("❌ ID non trouvé.", ephemeral=True)
 
-# ========================================
 # 📋 /messages_programmes
-# ========================================
 @tree.command(name="messages_programmes", description="Affiche les messages programmés")
 @app_commands.checks.has_permissions(administrator=True)
 async def messages_programmes(interaction: discord.Interaction):
-    if not bot.programmed_messages:
+    docs = list(programmed_messages_collection.find())
+    if not docs:
         await interaction.response.send_message("Aucun message programmé.", ephemeral=True)
         return
 
     texte = "**🗓️ Messages programmés :**\n"
-    for msg_id, data in bot.programmed_messages.items():
-        texte += f"🆔 `{msg_id}` — Salon : <#{data['channel_id']}> — ⏰ {data['next']} — 🔁 {data['type']}\n"
+    for doc in docs:
+        texte += f"🆔 `{doc['_id']}` — Salon : <#{doc['channel_id']}> — ⏰ {doc['next']} — 🔁 {doc['type']}\n"
 
-    await interaction.response.send_message(texte, ephemeral=True)
+    await interaction.response.send_message(texte.strip(), ephemeral=True)
 
-# ========================================
 # ✏️ /modifier_message_programme
-# ========================================
 class ModifierMessageModal(Modal, title="✏️ Modifier un message programmé"):
     def __init__(self, message_id):
         super().__init__(timeout=None)
@@ -709,57 +743,36 @@ class ModifierMessageModal(Modal, title="✏️ Modifier un message programmé")
             style=TextStyle.paragraph,
             placeholder="Entre le nouveau message ici...",
             required=True,
-            max_length=2000,
-            custom_id="modifier_programme_contenu"
+            max_length=2000
         )
         self.add_item(self.nouveau_contenu)
 
     async def on_submit(self, interaction: discord.Interaction):
+        from bson import ObjectId
         await interaction.response.defer(ephemeral=True)
-        if self.message_id in bot.programmed_messages:
-            bot.programmed_messages[self.message_id]["message"] = textwrap.dedent(self.nouveau_contenu.value)
-            save_programmed_messages()
+        result = programmed_messages_collection.update_one(
+            {"_id": ObjectId(self.message_id)},
+            {"$set": {"message": textwrap.dedent(self.nouveau_contenu.value)}}
+        )
+        if result.matched_count:
             await interaction.followup.send("✅ Message modifié avec succès.", ephemeral=True)
         else:
             await interaction.followup.send("❌ ID introuvable.", ephemeral=True)
 
 @tree.command(name="modifier_message_programme", description="Modifie un message programmé via un modal")
 @app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(message_id="ID du message à modifier")
+@app_commands.describe(message_id="ID MongoDB du message à modifier")
 async def modifier_message_programme(interaction: discord.Interaction, message_id: str):
-    if message_id not in bot.programmed_messages:
-        await interaction.response.send_message("❌ ID non trouvé.", ephemeral=True)
-        return
-
     await interaction.response.send_modal(ModifierMessageModal(message_id))
 
 
 
 
-import json
 
-# Chargement des défis au démarrage
-DEFIS_FILE = "defis.json"
-if os.path.exists(DEFIS_FILE):
-    with open(DEFIS_FILE, "r") as f:
-        bot.defi_messages = json.load(f)
-        # Convertir les clés en int
-        bot.defi_messages = {int(k): v for k, v in bot.defi_messages.items()}
-else:
-    bot.defi_messages = {}
-    with open(DEFIS_FILE, "w") as f:
-        json.dump({}, f)
-
-def save_defis():
-    with open(DEFIS_FILE, "w") as f:
-        json.dump(bot.defi_messages, f, indent=4)
 
 # ========================================
-# 🔥 Modal de défi
+# 🔥 Modal de défi (MongoDB)
 # ========================================
-from discord.ui import Modal, TextInput
-from discord import TextStyle
-
 class DefiModal(Modal, title="🔥 Défi de la semaine"):
 
     def __init__(self, salon, role, durée_heures):
@@ -783,11 +796,13 @@ class DefiModal(Modal, title="🔥 Défi de la semaine"):
             msg = await self.salon.send(textwrap.dedent(self.message.value))
             await msg.add_reaction("✅")
 
-            bot.defi_messages[msg.id] = {
+            end_timestamp = time.time() + self.durée_heures * 3600
+            defis_collection.insert_one({
+                "message_id": msg.id,
+                "channel_id": self.salon.id,
                 "role_id": self.role.id,
-                "end_timestamp": time.time() + self.durée_heures * 3600
-            }
-            save_defis()
+                "end_timestamp": end_timestamp
+            })
 
             asyncio.create_task(remove_role_later(interaction.guild, msg.id, self.role))
 
@@ -803,7 +818,11 @@ class DefiModal(Modal, title="🔥 Défi de la semaine"):
 # ========================================
 async def remove_role_later(guild, message_id, role):
     try:
-        temps_restant = bot.defi_messages[message_id]["end_timestamp"] - time.time()
+        data = defis_collection.find_one({"message_id": message_id})
+        if not data:
+            return
+
+        temps_restant = data["end_timestamp"] - time.time()
         await asyncio.sleep(max(0, temps_restant))
 
         for member in guild.members:
@@ -813,15 +832,13 @@ async def remove_role_later(guild, message_id, role):
                 except:
                     pass
 
-        if message_id in bot.defi_messages:
-            del bot.defi_messages[message_id]
-            save_defis()
+        defis_collection.delete_one({"message_id": message_id})
 
     except Exception as e:
         print(f"❌ Erreur dans la suppression du rôle défi : {e}")
 
 # ========================================
-# 📌 Commande /defi_semaine
+# 📌 Commande /defi_semaine (MongoDB)
 # ========================================
 @tree.command(name="defi_semaine", description="Lance un défi hebdomadaire avec rôle temporaire")
 @app_commands.checks.has_permissions(administrator=True)
@@ -834,28 +851,33 @@ async def defi_semaine(interaction: discord.Interaction, salon: discord.TextChan
     await interaction.response.send_modal(DefiModal(salon, role, durée_heures))
 
 # ========================================
-# ✅ Gestion des réactions défi
+# ✅ Gestion des réactions défi (MongoDB)
 # ========================================
 @bot.event
 async def on_raw_reaction_add(payload):
-    if payload.message_id in bot.defi_messages and str(payload.emoji) == "✅":
+    if str(payload.emoji) != "✅":
+        return
+
+    data = defis_collection.find_one({"message_id": payload.message_id})
+    if data:
         guild = bot.get_guild(payload.guild_id)
         member = guild.get_member(payload.user_id)
-        role_id = bot.defi_messages[payload.message_id]["role_id"]
-        role = guild.get_role(role_id)
+        role = guild.get_role(data["role_id"])
         if role and member and not member.bot:
             await member.add_roles(role, reason="Participation au défi")
 
 @bot.event
 async def on_raw_reaction_remove(payload):
-    if payload.message_id in bot.defi_messages and str(payload.emoji) == "✅":
+    if str(payload.emoji) != "✅":
+        return
+
+    data = defis_collection.find_one({"message_id": payload.message_id})
+    if data:
         guild = bot.get_guild(payload.guild_id)
         member = guild.get_member(payload.user_id)
-        role_id = bot.defi_messages[payload.message_id]["role_id"]
-        role = guild.get_role(role_id)
+        role = guild.get_role(data["role_id"])
         if role and member and not member.bot:
             await member.remove_roles(role, reason="Abandon du défi")
-
 
 
 # ========================================
@@ -941,20 +963,26 @@ async def clear(interaction: discord.Interaction, nombre: int):
 @bot.event
 async def on_ready():
     print(f"✅ Connecté en tant que {bot.user} (ID: {bot.user.id})")
-    
-    await bot.wait_until_ready()  # 🔐 S'assure que tout est bien chargé
+    await bot.wait_until_ready()
 
-    # 🔁 Lancer la vérification des messages programmés
+    # ✅ Vérifie la connexion MongoDB au démarrage
+    try:
+        mongo_client.admin.command("ping")
+        print("📡 Connexion MongoDB : OK")
+    except Exception as e:
+        print(f"❌ Connexion MongoDB échouée : {e}")
+
+    # 🔁 Lancer la boucle des messages programmés (MongoDB)
     if not check_programmed_messages.is_running():
         check_programmed_messages.start()
         print("🔄 Boucle check_programmed_messages lancée")
 
-    # Synchronisation des commandes slash
+    # 🌐 Synchronisation des commandes slash
     try:
         synced = await bot.tree.sync()
         print(f"🌐 {len(synced)} commandes slash synchronisées")
     except Exception as e:
-        print(f"❌ Erreur lors de la synchronisation des slash commands : {e}")
+        print(f"❌ Erreur de synchronisation des commandes : {e}")
 
 # ========================================
 # 🚀 Lancement du bot
@@ -963,4 +991,5 @@ try:
     bot.run(TOKEN)
 except Exception as e:
     print(f"❌ Erreur critique au lancement du bot : {e}")
+
 
