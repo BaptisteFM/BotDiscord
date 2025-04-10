@@ -1,0 +1,3 @@
+git add --all
+git commit -m "Normalement cette fois c'est la bonne"
+git push origin main
