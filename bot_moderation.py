@@ -13,40 +13,33 @@ import sys
 # ========================================
 # 🔐 Chargement des variables d'environnement
 # ========================================
-if not load_dotenv():
-    print("⚠️ Le fichier .env est introuvable ou non chargé. Railway utilise les variables d'environnement internes.")
-else:
-    print("✅ Variables d'environnement locales chargées.")
+load_dotenv()
 
-TOKEN = os.getenv("MOD_BOT_TOKEN")  # ✅ Nouveau nom pour éviter l'interférence de Railway
+print("📦 Chargement des variables d'environnement...")
+TOKEN = os.getenv("MOD_BOT_TOKEN")
 MONGODB_URI = os.getenv("MONGODB_URI")
 
-if not TOKEN or not isinstance(TOKEN, str):
-    print("❌ Le token du bot de modération est vide ou invalide.")
+if not TOKEN:
+    print("❌ Le token MOD_BOT_TOKEN est manquant.")
     sys.exit(1)
 
-if not MONGODB_URI or not isinstance(MONGODB_URI, str):
-    print("❌ L'URI MongoDB est vide ou invalide.")
+if not MONGODB_URI:
+    print("❌ L'URI MongoDB est manquante.")
     sys.exit(1)
 
 # ========================================
-# 📦 Connexion à MongoDB (blindée)
+# 🔌 Connexion MongoDB sécurisée
 # ========================================
 try:
     mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
     mongo_client.admin.command("ping")
-    mongo_db = mongo_client["discord_bot"]
     print("✅ Connexion MongoDB réussie.")
 except Exception as e:
     print(f"❌ Erreur MongoDB : {e}")
     sys.exit(1)
 
-xp_collection = mongo_db["xp"]
-programmed_messages_collection = mongo_db["programmed_messages"]
-defis_collection = mongo_db["defis"]
-
 # ========================================
-# ⚙️ Intents + bot setup
+# ⚙️ Intents et initialisation du bot
 # ========================================
 intents = discord.Intents.default()
 intents.message_content = True
@@ -62,34 +55,27 @@ class ModerationBot(commands.Bot):
             synced = await self.tree.sync()
             print(f"🌐 {len(synced)} commandes slash synchronisées.")
         except Exception as e:
-            print(f"❌ Erreur de synchronisation des slash commands : {e}")
+            print(f"❌ Erreur sync slash commands : {e}")
 
 bot = ModerationBot()
 tree = bot.tree
 
 # ========================================
-# 🔒 Exemple de commande réservée aux admins
+# ✅ Commande /ping pour test
 # ========================================
-@tree.command(name="ping", description="Vérifie si le bot de modération est opérationnel")
+@tree.command(name="ping", description="Test du bot de modération")
 @app_commands.checks.has_permissions(administrator=True)
 async def ping(interaction: discord.Interaction):
-    try:
-        await interaction.response.send_message("🏓 Pong ! Bot de modération opérationnel.", ephemeral=True)
-    except Exception as e:
-        print(f"❌ Erreur dans la commande /ping : {e}")
-        await interaction.response.send_message("❌ Une erreur est survenue.", ephemeral=True)
+    await interaction.response.send_message("🏓 Pong ! Le bot de modération est opérationnel.", ephemeral=True)
 
 # ========================================
-# ✅ Connexion du bot
+# 🔄 Connexion
 # ========================================
 @bot.event
 async def on_ready():
-    print(f"✅ [BOT MODÉRATION] Connecté en tant que {bot.user} (ID : {bot.user.id})")
+    print(f"✅ [MOD BOT] Connecté en tant que {bot.user} (ID: {bot.user.id})")
 
-# ========================================
-# 🚀 Lancement sécurisé
-# ========================================
 try:
     bot.run(TOKEN)
 except Exception as e:
-    print(f"❌ Erreur critique au lancement du bot : {e}")
+    print(f"❌ Erreur critique au lancement : {e}")
