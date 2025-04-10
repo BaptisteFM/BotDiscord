@@ -537,7 +537,7 @@ async def ajouter_titre(interaction: discord.Interaction, xp: int, titre: str):
 
 
 # ========================================
-# ⏰ Système de messages programmés — version blindée
+# ⏰ Système de messages programmés — version ultra-fiable
 # ========================================
 
 import os, json, time, datetime, textwrap
@@ -547,45 +547,62 @@ from discord.ext import tasks
 
 MSG_FILE = "messages_programmes.json"
 
-# Chargement des messages programmés
-if os.path.exists(MSG_FILE):
-    with open(MSG_FILE, "r") as f:
-        bot.programmed_messages = json.load(f)
-else:
-    bot.programmed_messages = {}
-    with open(MSG_FILE, "w") as f:
-        json.dump({}, f)
+# Chargement initial
+def load_programmed_messages():
+    try:
+        if os.path.exists(MSG_FILE):
+            with open(MSG_FILE, "r") as f:
+                return json.load(f)
+        else:
+            return {}
+    except Exception as e:
+        print(f"❌ Erreur lors du chargement de {MSG_FILE} : {e}")
+        return {}
 
 def save_programmed_messages():
-    with open(MSG_FILE, "w") as f:
-        json.dump(bot.programmed_messages, f, indent=4)
+    try:
+        with open(MSG_FILE, "w") as f:
+            json.dump(bot.programmed_messages, f, indent=4)
+    except Exception as e:
+        print(f"❌ Erreur lors de la sauvegarde de {MSG_FILE} : {e}")
+
+bot.programmed_messages = load_programmed_messages()
 
 # ========================================
-# 🔁 Boucle de vérification toutes les minutes
+# 🔁 Boucle de vérification
 # ========================================
-@tasks.loop(seconds=60)
+@tasks.loop(seconds=30)
 async def check_programmed_messages():
     await bot.wait_until_ready()
-    now = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+    now = datetime.datetime.now()
+    now_str = now.strftime("%d/%m/%Y %H:%M")
+
     to_remove = []
 
     for key, data in list(bot.programmed_messages.items()):
-        if data["next"] == now:
-            channel = bot.get_channel(int(data["channel_id"]))
-            if channel:
-                try:
+        scheduled_time = data.get("next")
+        if scheduled_time == now_str:
+            try:
+                channel = bot.get_channel(int(data["channel_id"]))
+                if channel:
                     await channel.send(textwrap.dedent(data["message"]))
-                except Exception as e:
-                    print(f"❌ Erreur envoi message [{key}] : {e}")
+                    print(f"📤 Message programmé envoyé dans {channel} (ID: {key})")
+            except Exception as e:
+                print(f"❌ Erreur lors de l'envoi du message [{key}] : {e}")
 
             if data["type"] == "once":
                 to_remove.append(key)
-            elif data["type"] == "daily":
-                next_time = datetime.datetime.strptime(data["next"], "%d/%m/%Y %H:%M") + datetime.timedelta(days=1)
-                bot.programmed_messages[key]["next"] = next_time.strftime("%d/%m/%Y %H:%M")
-            elif data["type"] == "weekly":
-                next_time = datetime.datetime.strptime(data["next"], "%d/%m/%Y %H:%M") + datetime.timedelta(weeks=1)
-                bot.programmed_messages[key]["next"] = next_time.strftime("%d/%m/%Y %H:%M")
+            else:
+                try:
+                    current = datetime.datetime.strptime(data["next"], "%d/%m/%Y %H:%M")
+                    if data["type"] == "daily":
+                        current += datetime.timedelta(days=1)
+                    elif data["type"] == "weekly":
+                        current += datetime.timedelta(weeks=1)
+                    bot.programmed_messages[key]["next"] = current.strftime("%d/%m/%Y %H:%M")
+                except Exception as e:
+                    print(f"❌ Erreur lors du recalcul de la prochaine date pour [{key}] : {e}")
+                    to_remove.append(key)
 
     for key in to_remove:
         del bot.programmed_messages[key]
@@ -680,7 +697,7 @@ async def messages_programmes(interaction: discord.Interaction):
     await interaction.response.send_message(texte, ephemeral=True)
 
 # ========================================
-# ✏️ /modifier_message_programme (via modal)
+# ✏️ /modifier_message_programme
 # ========================================
 class ModifierMessageModal(Modal, title="✏️ Modifier un message programmé"):
     def __init__(self, message_id):
@@ -715,7 +732,6 @@ async def modifier_message_programme(interaction: discord.Interaction, message_i
         return
 
     await interaction.response.send_modal(ModifierMessageModal(message_id))
-
 
 
 
