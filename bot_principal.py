@@ -14,7 +14,7 @@ os.environ["PORT"] = "10000"  # Empêche Render de relancer à cause du port
 # ========================================
 # 📁 Chemins des fichiers persistants
 # ========================================
-DATA_FOLDER = "data"
+DATA_FOLDER = "/data"
 XP_FILE = os.path.join(DATA_FOLDER, "xp.json")
 MSG_FILE = os.path.join(DATA_FOLDER, "messages_programmes.json")
 DEFIS_FILE = os.path.join(DATA_FOLDER, "defis.json")
