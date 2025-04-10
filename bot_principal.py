@@ -816,7 +816,6 @@ async def clear(interaction: discord.Interaction, nombre: int):
 
 
 
-
 # ========================================
 # MODULE D'EXTENSION POUR L'ENVOI DE MESSAGES AUTOMATIQUES PAR ROLE
 # ========================================
