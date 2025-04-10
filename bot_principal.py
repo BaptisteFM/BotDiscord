@@ -968,62 +968,6 @@ bot.add_cog(AutoDMCog(bot))
 
 
 
-# ========================================
-# 🔧 /creer_categories — Créer plusieurs catégories avec des permissions personnalisées
-# ========================================
-@tree.command(name="creer_categories", description="Crée plusieurs catégories avec des noms personnalisés (les emojis sont acceptés) et définit les rôles pouvant y accéder.")
-@app_commands.describe(
-    names="Liste des noms de catégories séparés par des virgules (ex: '🎮 Jeux, 💬 Discussion, 📚 Lecture')",
-    roles="Liste des rôles à autoriser (séparés par des virgules ; tu peux utiliser les mentions ou les noms de rôles)"
-)
-async def creer_categories(interaction: discord.Interaction, names: str, roles: str):
-    # On convertit la chaîne de noms en liste
-    liste_categories = [nom.strip() for nom in names.split(",") if nom.strip()]
-    
-    # On récupère les rôles à partir de la chaîne, en supportant soit une mention (<@&ID>) soit un nom
-    roles_autorises = []
-    for role_str in roles.split(","):
-        role_str = role_str.strip()
-        role_obj = None
-        if role_str.startswith("<@&") and role_str.endswith(">"):
-            # Récupérer le role via son ID
-            try:
-                role_id = int(role_str[3:-1])
-                role_obj = interaction.guild.get_role(role_id)
-            except Exception:
-                pass
-        else:
-            # Recherche par nom (attention aux doublons éventuels)
-            role_obj = discord.utils.get(interaction.guild.roles, name=role_str)
-        if role_obj:
-            roles_autorises.append(role_obj)
-    
-    if not liste_categories:
-        await interaction.response.send_message("❌ Aucun nom de catégorie fourni.", ephemeral=True)
-        return
-
-    if not roles_autorises:
-        await interaction.response.send_message("❌ Aucun rôle valide trouvé. Utilise une mention (ex: <@&123456789>) ou le nom exact du rôle.", ephemeral=True)
-        return
-
-    liste_crees = []
-    for cat_name in liste_categories:
-        # Définition des permissions : deny pour @everyone, allow pour chacun des rôles indiqués.
-        overwrites = {
-            interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False)
-        }
-        for role in roles_autorises:
-            overwrites[role] = discord.PermissionOverwrite(view_channel=True)
-        try:
-            nouvelle_categorie = await interaction.guild.create_category(name=cat_name, overwrites=overwrites)
-            liste_crees.append(nouvelle_categorie.name)
-        except Exception as e:
-            print(f"❌ Erreur lors de la création de la catégorie '{cat_name}' : {e}")
-
-    if liste_crees:
-        await interaction.response.send_message(f"✅ Catégories créées : {', '.join(liste_crees)}", ephemeral=True)
-    else:
-        await interaction.response.send_message("❌ Aucune catégorie n'a pu être créée.", ephemeral=True)
 
 
 # ========================================
