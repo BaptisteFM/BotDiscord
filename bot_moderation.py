@@ -92,6 +92,8 @@ async def on_ready():
 # 🚀 Lancement sécurisé du bot
 # ========================================
 try:
+    print(f"🧪 DISCORD_TOKEN_MOD = {TOKEN}")
+    print(f"🧪 MONGODB_URI = {MONGODB_URI}")
     bot.run(TOKEN)
 except Exception as e:
     print(f"❌ Erreur critique au lancement du bot de modération : {e}")
