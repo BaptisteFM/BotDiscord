@@ -831,3 +831,62 @@ async def envoyer_message(interaction: discord.Interaction, salon: discord.TextC
         await interaction.response.send_message(f"❌ Erreur : {str(e)}", ephemeral=True)
 
 
+
+
+# ========================================
+# 🧹 /clear — Supprime un nombre de messages (version blindée)
+# ========================================
+
+@tree.command(name="clear", description="Supprime un nombre de messages dans ce salon (max 100)")
+@app_commands.checks.has_permissions(manage_messages=True)
+@app_commands.describe(
+    nombre="Nombre de messages à supprimer (entre 1 et 100)"
+)
+async def clear(interaction: discord.Interaction, nombre: int):
+    if nombre < 1 or nombre > 100:
+        await interaction.response.send_message("❌ Choisis un nombre entre 1 et 100.", ephemeral=True)
+        return
+
+    try:
+        await interaction.response.defer(ephemeral=True)
+        deleted = await interaction.channel.purge(limit=nombre)
+        await interaction.followup.send(
+            f"🧽 {len(deleted)} messages supprimés avec succès.",
+            ephemeral=True
+        )
+    except discord.Forbidden:
+        await interaction.followup.send("❌ Le bot n’a pas la permission de supprimer des messages dans ce salon.", ephemeral=True)
+    except Exception as e:
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"❌ Erreur lors de la suppression : {str(e)}", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ Erreur : {str(e)}", ephemeral=True)
+
+
+
+# ========================================
+# ✅ Événement on_ready — Connexion sécurisée
+# ========================================
+
+@bot.event
+async def on_ready():
+    print(f"✅ Connecté en tant que {bot.user} (ID: {bot.user.id})")
+    await bot.wait_until_ready()
+
+    try:
+        # 🔁 Lancer la boucle de messages programmés
+        if not check_programmed_messages.is_running():
+            check_programmed_messages.start()
+            print("🔄 Boucle check_programmed_messages démarrée")
+    except Exception as e:
+        print(f"❌ Erreur lors du démarrage de la boucle : {e}")
+
+
+# ========================================
+# 🚀 Lancement du bot (version blindée)
+# ========================================
+
+try:
+    bot.run(os.getenv("DISCORD_TOKEN"))
+except Exception as e:
+    print(f"❌ Erreur critique au lancement du bot : {e}")
