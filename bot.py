@@ -545,10 +545,15 @@ async def ajouter_titre(interaction: discord.Interaction, xp: int, titre: str):
 
 
 # ========================================
-# ⏰ Système de messages programmés
+# ⏰ Système de messages programmés (format FR corrigé)
 # ========================================
 
-# Chargement du fichier des messages programmés
+import datetime, time, os, json, textwrap
+from discord.ext import tasks
+from discord import app_commands, TextStyle
+from discord.ui import Modal, TextInput
+
+# Chargement du fichier JSON
 MSG_FILE = "messages_programmes.json"
 if os.path.exists(MSG_FILE):
     with open(MSG_FILE, "r") as f:
@@ -562,10 +567,10 @@ def save_programmed_messages():
     with open(MSG_FILE, "w") as f:
         json.dump(bot.programmed_messages, f, indent=4)
 
-# Vérifie les messages à envoyer toutes les 60 secondes
+# Boucle de vérification toutes les 60 secondes
 @tasks.loop(seconds=60)
 async def check_programmed_messages():
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    now = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
     to_remove = []
 
     for key, data in bot.programmed_messages.items():
@@ -577,11 +582,11 @@ async def check_programmed_messages():
             if data["type"] == "once":
                 to_remove.append(key)
             elif data["type"] == "daily":
-                next_time = datetime.datetime.strptime(data["next"], "%Y-%m-%d %H:%M") + datetime.timedelta(days=1)
-                bot.programmed_messages[key]["next"] = next_time.strftime("%Y-%m-%d %H:%M")
+                next_time = datetime.datetime.strptime(data["next"], "%d/%m/%Y %H:%M") + datetime.timedelta(days=1)
+                bot.programmed_messages[key]["next"] = next_time.strftime("%d/%m/%Y %H:%M")
             elif data["type"] == "weekly":
-                next_time = datetime.datetime.strptime(data["next"], "%Y-%m-%d %H:%M") + datetime.timedelta(weeks=1)
-                bot.programmed_messages[key]["next"] = next_time.strftime("%Y-%m-%d %H:%M")
+                next_time = datetime.datetime.strptime(data["next"], "%d/%m/%Y %H:%M") + datetime.timedelta(weeks=1)
+                bot.programmed_messages[key]["next"] = next_time.strftime("%d/%m/%Y %H:%M")
 
     for key in to_remove:
         del bot.programmed_messages[key]
@@ -589,10 +594,8 @@ async def check_programmed_messages():
     save_programmed_messages()
 
 # ========================================
-# 📅 Modal pour programmer un message
+# 📅 Modal de programmation
 # ========================================
-from discord.ui import Modal, TextInput
-from discord import TextStyle
 
 class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
 
@@ -612,7 +615,7 @@ class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
         self.add_item(self.contenu)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)  # ✅ Protection anti-timeout
+        await interaction.response.defer(ephemeral=True)
         try:
             key = str(int(time.time()))
             bot.programmed_messages[key] = {
@@ -631,20 +634,21 @@ class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
             await interaction.followup.send(f"❌ Erreur : {str(e)}", ephemeral=True)
 
 # ========================================
-# 📅 Commande /programmer_message avec modal
+# 📅 Commande /programmer_message
 # ========================================
+
 @tree.command(name="programmer_message", description="Planifie un message automatique")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(
     salon="Salon où envoyer le message",
     type="Type d'envoi : once, daily ou weekly",
-    date_heure="Date et heure de 1er envoi (YYYY-MM-DD HH:MM)"
+    date_heure="Date et heure de 1er envoi (JJ/MM/AAAA HH:MM)"
 )
 async def programmer_message(interaction: discord.Interaction, salon: discord.TextChannel, type: str, date_heure: str):
     try:
-        datetime.datetime.strptime(date_heure, "%Y-%m-%d %H:%M")
+        datetime.datetime.strptime(date_heure, "%d/%m/%Y %H:%M")
     except ValueError:
-        await interaction.response.send_message("❌ Format invalide. Utilise : YYYY-MM-DD HH:MM", ephemeral=True)
+        await interaction.response.send_message("❌ Format invalide. Utilise : JJ/MM/AAAA HH:MM", ephemeral=True)
         return
 
     modal = ProgrammerMessageModal(salon, type, date_heure)
@@ -653,6 +657,7 @@ async def programmer_message(interaction: discord.Interaction, salon: discord.Te
 # ========================================
 # 🗑️ Commande /supprimer_message
 # ========================================
+
 @tree.command(name="supprimer_message", description="Supprime un message programmé")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(message_id="ID du message programmé à supprimer")
@@ -667,6 +672,7 @@ async def supprimer_message(interaction: discord.Interaction, message_id: str):
 # ========================================
 # 📋 Commande /messages_programmes
 # ========================================
+
 @tree.command(name="messages_programmes", description="Affiche la liste des messages programmés")
 @app_commands.checks.has_permissions(administrator=True)
 async def messages_programmes(interaction: discord.Interaction):
@@ -683,6 +689,7 @@ async def messages_programmes(interaction: discord.Interaction):
 # ========================================
 # ✏️ Commande /modifier_message_programme
 # ========================================
+
 @tree.command(name="modifier_message_programme", description="Modifie un message programmé")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(message_id="ID du message programmé", nouveau_message="Nouveau contenu")
@@ -693,6 +700,7 @@ async def modifier_message_programme(interaction: discord.Interaction, message_i
         await interaction.response.send_message("✅ Message mis à jour", ephemeral=True)
     else:
         await interaction.response.send_message("❌ ID introuvable", ephemeral=True)
+
 
 
 # ========================================
@@ -806,17 +814,17 @@ from discord import TextStyle
 
 class ModalEnvoyerMessage(Modal, title="📩 Envoyer un message formaté"):
 
-    contenu = TextInput(
-        label="Contenu du message",
-        style=TextStyle.paragraph,
-        placeholder="Colle ici ton message complet avec mise en forme (sauts de ligne inclus)",
-        required=True,
-        max_length=2000
-    )
-
     def __init__(self, salon):
         super().__init__()
         self.salon = salon
+        self.contenu = TextInput(
+            label="Contenu du message",
+            style=TextStyle.paragraph,
+            placeholder="Colle ici ton message complet avec mise en forme (sauts de ligne inclus)",
+            required=True,
+            max_length=2000,
+            custom_id="envoyer_message_contenu"  # ✅ ID unique pour éviter les conflits
+        )
         self.add_item(self.contenu)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -842,7 +850,7 @@ async def envoyer_message(interaction: discord.Interaction, salon: discord.TextC
 
 
 # ========================================
-# 🧹 /clear — Supprime un certain nombre de messages dans le salon
+# 🧹 /clear — Supprime un certain nombre de messages dans le salon (corrigé)
 # ========================================
 @bot.tree.command(name="clear", description="Supprime un nombre de messages dans ce salon (max 100)")
 @app_commands.checks.has_permissions(manage_messages=True)
@@ -854,15 +862,16 @@ async def clear(interaction: discord.Interaction, nombre: int):
         await interaction.response.send_message("❌ Choisis un nombre entre 1 et 100.", ephemeral=True)
         return
 
-    # On ne défère PAS ici. On purge et on répond ensuite, car c'est très rapide
     try:
+        await interaction.response.defer(ephemeral=True)  # ✅ Évite le timeout
         deleted = await interaction.channel.purge(limit=nombre)
-        await interaction.response.send_message(
+
+        await interaction.followup.send(
             f"🧽 {len(deleted)} messages supprimés avec succès.",
             ephemeral=True
         )
+
     except Exception as e:
-        # Envoie la réponse même si l'erreur vient après
         if not interaction.response.is_done():
             await interaction.response.send_message(f"❌ Erreur lors de la suppression : {str(e)}", ephemeral=True)
         else:
