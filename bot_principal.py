@@ -299,37 +299,43 @@ async def ajouter_titre(interaction: discord.Interaction, xp: int, titre: str):
 # ⏰ Messages programmés (stockés localement)
 # ========================================
 
-# 🔁 Boucle d'envoi automatique
+# 🔁 Boucle d'envoi automatique (blindée + tolérance)
 @tasks.loop(seconds=30)
 async def check_programmed_messages():
     await bot.wait_until_ready()
-    now = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+    now = datetime.datetime.now()
 
     try:
         for msg_id, msg in list(messages_programmes.items()):
-            if msg["next"] == now:
-                try:
+            try:
+                msg_time = datetime.datetime.strptime(msg["next"], "%d/%m/%Y %H:%M")
+
+                # ✅ Tolérance de 60 secondes pour éviter de rater l'envoi
+                if 0 <= (now - msg_time).total_seconds() < 60:
                     channel = bot.get_channel(int(msg["channel_id"]))
                     if channel:
                         await channel.send(textwrap.dedent(msg["message"]))
                         print(f"📤 Message envoyé dans {channel.name} ({msg_id})")
-                except Exception as e:
-                    print(f"❌ Erreur envoi message programmé [{msg_id}] : {e}")
 
-                if msg["type"] == "once":
-                    del messages_programmes[msg_id]
-                else:
-                    current = datetime.datetime.strptime(msg["next"], "%d/%m/%Y %H:%M")
-                    if msg["type"] == "daily":
-                        current += datetime.timedelta(days=1)
-                    elif msg["type"] == "weekly":
-                        current += datetime.timedelta(weeks=1)
-                    messages_programmes[msg_id]["next"] = current.strftime("%d/%m/%Y %H:%M")
+                    # 🔁 Mise à jour ou suppression
+                    if msg["type"] == "once":
+                        del messages_programmes[msg_id]
+                    else:
+                        next_time = msg_time
+                        if msg["type"] == "daily":
+                            next_time += datetime.timedelta(days=1)
+                        elif msg["type"] == "weekly":
+                            next_time += datetime.timedelta(weeks=1)
+                        messages_programmes[msg_id]["next"] = next_time.strftime("%d/%m/%Y %H:%M")
+
+            except Exception as e:
+                print(f"❌ Erreur envoi message [{msg_id}] : {e}")
 
         sauvegarder_json(MSG_FILE, messages_programmes)
 
     except Exception as e:
-        print(f"❌ Erreur boucle messages programmés : {e}")
+        print(f"❌ Erreur dans la boucle check_programmed_messages : {e}")
+
 
 # ✅ Modal de création
 class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
