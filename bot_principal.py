@@ -75,8 +75,14 @@ class MyBot(commands.Bot):
         try:
             synced = await self.tree.sync()
             print(f"🌐 {len(synced)} commandes slash synchronisées")
+
+            if not check_programmed_messages.is_running():
+                check_programmed_messages.start()
+                print("✅ Boucle check_programmed_messages démarrée via setup_hook()")
+
         except Exception as e:
-            print(f"❌ Erreur de synchronisation des slash commands : {e}")
+            print(f"❌ Erreur dans setup_hook : {e}")
+
 
 
 # ========================================
@@ -84,6 +90,9 @@ class MyBot(commands.Bot):
 # ========================================
 bot = MyBot()
 tree = bot.tree
+
+# ✅ Lance manuellement le setup_hook pour bien synchroniser et activer les tâches
+asyncio.run(bot.setup_hook())
 
 
 
