@@ -910,7 +910,23 @@ keep_alive()
 # 🚀 Lancement du bot (version blindée)
 # ========================================
 
+@bot.event
+async def on_ready():
+    try:
+        print(f"✅ Connecté en tant que {bot.user} (ID : {bot.user.id})")
+
+        # Démarrage sécurisé de la boucle des messages programmés
+        if not check_programmed_messages.is_running():
+            check_programmed_messages.start()
+            print("🔁 Boucle d'envoi des messages programmés démarrée.")
+        else:
+            print("ℹ️ La boucle des messages programmés tourne déjà.")
+
+    except Exception as e:
+        print(f"❌ Erreur dans on_ready : {e}")
+
 try:
     bot.run(os.getenv("DISCORD_TOKEN"))
 except Exception as e:
     print(f"❌ Erreur critique au lancement du bot : {e}")
+
