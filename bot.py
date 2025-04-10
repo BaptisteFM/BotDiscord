@@ -917,20 +917,33 @@ async def clear(interaction: discord.Interaction, nombre: int):
 
 
 
+# ========================================
+# ✅ Connexion et lancement sécurisé du bot
+# ========================================
+
 @bot.event
 async def on_ready():
-    print(f"✅ Connecté en tant que {bot.user.name}")
+    print(f"✅ Connecté en tant que {bot.user} (ID: {bot.user.id})")
+    
+    await bot.wait_until_ready()  # 🔐 S'assure que tout est bien chargé
 
+    # 🔁 Lancer la vérification des messages programmés
     if not check_programmed_messages.is_running():
         check_programmed_messages.start()
+        print("🔄 Boucle check_programmed_messages lancée")
 
+    # Synchronisation des commandes slash
     try:
         synced = await bot.tree.sync()
         print(f"🌐 {len(synced)} commandes slash synchronisées")
     except Exception as e:
-        print(f"❌ Erreur lors de la synchronisation des commandes : {e}")
+        print(f"❌ Erreur lors de la synchronisation des slash commands : {e}")
 
-
-
-bot.run(TOKEN)
+# ========================================
+# 🚀 Lancement du bot
+# ========================================
+try:
+    bot.run(TOKEN)
+except Exception as e:
+    print(f"❌ Erreur critique au lancement du bot : {e}")
 
