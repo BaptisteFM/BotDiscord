@@ -829,69 +829,111 @@ class AutoDMCog(commands.Cog):
         # Dictionnaire des configurations, indexé par un identifiant unique
         # Chaque entrée est de la forme : { "role_id": <str>, "dm_message": <str> }
         self.auto_dm_configs = {}
-        self.bot.loop.create_task(self.load_configs())
 
     async def load_configs(self):
-        self.auto_dm_configs = await charger_json_async(AUTO_DM_FILE)
-        print("⚙️ Configuration automatique DM chargée.")
+        try:
+            configs = await charger_json_async(AUTO_DM_FILE)
+            if not isinstance(configs, dict):
+                print("⚠️ La configuration chargée n'est pas un dictionnaire. Réinitialisation.")
+                configs = {}
+            self.auto_dm_configs = configs
+            print("⚙️ Configuration automatique DM chargée avec succès.")
+        except Exception as e:
+            print(f"❌ Erreur critique lors du chargement des configs : {e}")
+            self.auto_dm_configs = {}
 
     async def save_configs(self):
-        await sauvegarder_json_async(AUTO_DM_FILE, self.auto_dm_configs)
+        try:
+            await sauvegarder_json_async(AUTO_DM_FILE, self.auto_dm_configs)
+            print("⚙️ Configurations sauvegardées.")
+        except Exception as e:
+            print(f"❌ Erreur lors de la sauvegarde des configs : {e}")
+
+    # Méthode asynchrone appelée lors du chargement du Cog.
+    async def cog_load(self):
+        await self.load_configs()
 
     # Listener pour détecter l'attribution d'un rôle
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
-        # Détecte les rôles ajoutés
-        added_roles = set(after.roles) - set(before.roles)
-        for role in added_roles:
-            for config in self.auto_dm_configs.values():
-                if str(role.id) == config["role_id"]:
-                    try:
-                        await after.send(config["dm_message"])
-                        print(f"✅ DM automatique envoyé à {after} pour le rôle {role.name}")
-                    except Exception as e:
-                        print(f"❌ Erreur lors de l'envoi du DM à {after}: {e}")
+        try:
+            # Détecte les rôles ajoutés
+            added_roles = set(after.roles) - set(before.roles)
+            if not added_roles:
+                return
+            for role in added_roles:
+                for config in self.auto_dm_configs.values():
+                    # Sécurité : on s'assure que la clé "role_id" et "dm_message" existent
+                    if not isinstance(config, dict):
+                        continue
+                    if str(role.id) == config.get("role_id", ""):
+                        dm_message = config.get("dm_message", "")
+                        if not dm_message:
+                            print(f"⚠️ Aucune message DM définie pour la config associée au rôle {role.id}")
+                            continue
+                        try:
+                            await after.send(dm_message)
+                            print(f"✅ DM automatique envoyé à {after} pour le rôle {role.name}")
+                        except Exception as e:
+                            print(f"❌ Échec de l'envoi du DM à {after} pour le rôle {role.name}: {e}")
+        except Exception as e:
+            print(f"❌ Erreur dans on_member_update : {e}")
 
-    # -------------------------------
+    # ---------------------------------------------------
     # Commandes de gestion des configurations de DM automatique
-    # -------------------------------
+    # ---------------------------------------------------
     @app_commands.command(name="autodm_add", description="Ajoute une configuration d'envoi de DM lors de l'attribution d'un rôle.")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(role="Le rôle concerné", dm_message="Le message envoyé en DM")
     async def autodm_add(self, interaction: discord.Interaction, role: discord.Role, dm_message: str):
-        config_id = str(uuid.uuid4())
-        self.auto_dm_configs[config_id] = {
-            "role_id": str(role.id),
-            "dm_message": dm_message
-        }
-        await self.save_configs()
-        await interaction.response.send_message(f"✅ Configuration ajoutée avec ID `{config_id}` pour le rôle {role.mention}.", ephemeral=True)
+        try:
+            # Vérification minimale : ne pas accepter un message vide
+            if not dm_message.strip():
+                await interaction.response.send_message("❌ Le message DM ne peut être vide.", ephemeral=True)
+                return
+
+            config_id = str(uuid.uuid4())
+            self.auto_dm_configs[config_id] = {
+                "role_id": str(role.id),
+                "dm_message": dm_message.strip()
+            }
+            await self.save_configs()
+            await interaction.response.send_message(f"✅ Configuration ajoutée avec ID `{config_id}` pour le rôle {role.mention}.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Erreur lors de l'ajout de la configuration : {e}", ephemeral=True)
 
     @app_commands.command(name="autodm_list", description="Affiche la liste des configurations d'envoi de DM automatique.")
     @app_commands.checks.has_permissions(administrator=True)
     async def autodm_list(self, interaction: discord.Interaction):
-        if not self.auto_dm_configs:
-            await interaction.response.send_message("Aucune configuration d'envoi automatique n'est définie.", ephemeral=True)
-            return
+        try:
+            if not self.auto_dm_configs:
+                await interaction.response.send_message("Aucune configuration d'envoi automatique n'est définie.", ephemeral=True)
+                return
 
-        message_lines = []
-        for config_id, config in self.auto_dm_configs.items():
-            role = interaction.guild.get_role(int(config["role_id"]))
-            role_name = role.name if role else f"ID {config['role_id']}"
-            message_lines.append(f"**ID :** `{config_id}`\n**Rôle :** {role_name}\n**Message DM :** {config['dm_message']}\n")
-        message_final = "\n".join(message_lines)
-        await interaction.response.send_message(message_final, ephemeral=True)
+            message_lines = []
+            for config_id, config in self.auto_dm_configs.items():
+                role_obj = interaction.guild.get_role(int(config.get("role_id", 0)))
+                role_name = role_obj.name if role_obj else f"ID {config.get('role_id', 'Inconnu')}"
+                dm_msg = config.get("dm_message", "Aucun message")
+                message_lines.append(f"**ID :** `{config_id}`\n**Rôle :** {role_name}\n**Message DM :** {dm_msg}\n")
+            message_final = "\n".join(message_lines)
+            await interaction.response.send_message(message_final, ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Erreur lors de la récupération des configurations : {e}", ephemeral=True)
 
     @app_commands.command(name="autodm_remove", description="Supprime une configuration d'envoi automatique de DM.")
     @app_commands.checks.has_permissions(administrator=True)
     @app_commands.describe(config_id="L'identifiant de la configuration à supprimer")
     async def autodm_remove(self, interaction: discord.Interaction, config_id: str):
-        if config_id in self.auto_dm_configs:
-            del self.auto_dm_configs[config_id]
-            await self.save_configs()
-            await interaction.response.send_message(f"✅ Configuration `{config_id}` supprimée.", ephemeral=True)
-        else:
-            await interaction.response.send_message("❌ Identifiant non trouvé.", ephemeral=True)
+        try:
+            if config_id in self.auto_dm_configs:
+                del self.auto_dm_configs[config_id]
+                await self.save_configs()
+                await interaction.response.send_message(f"✅ Configuration `{config_id}` supprimée.", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ Identifiant non trouvé.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Erreur lors de la suppression de la configuration : {e}", ephemeral=True)
 
     @app_commands.command(name="autodm_modify", description="Modifie une configuration d'envoi automatique de DM.")
     @app_commands.checks.has_permissions(administrator=True)
@@ -901,22 +943,29 @@ class AutoDMCog(commands.Cog):
         new_dm_message="Nouveau message DM (optionnel)"
     )
     async def autodm_modify(self, interaction: discord.Interaction, config_id: str, new_role: discord.Role = None, new_dm_message: str = None):
-        if config_id not in self.auto_dm_configs:
-            await interaction.response.send_message("❌ Identifiant non trouvé.", ephemeral=True)
-            return
+        try:
+            if config_id not in self.auto_dm_configs:
+                await interaction.response.send_message("❌ Identifiant non trouvé.", ephemeral=True)
+                return
 
-        config = self.auto_dm_configs[config_id]
-        if new_role is not None:
-            config["role_id"] = str(new_role.id)
-        if new_dm_message is not None:
-            config["dm_message"] = new_dm_message
+            config = self.auto_dm_configs[config_id]
+            if new_role is not None:
+                config["role_id"] = str(new_role.id)
+            if new_dm_message is not None:
+                if not new_dm_message.strip():
+                    await interaction.response.send_message("❌ Le nouveau message ne peut être vide.", ephemeral=True)
+                    return
+                config["dm_message"] = new_dm_message.strip()
 
-        self.auto_dm_configs[config_id] = config
-        await self.save_configs()
-        await interaction.response.send_message(f"✅ Configuration `{config_id}` modifiée.", ephemeral=True)
+            self.auto_dm_configs[config_id] = config
+            await self.save_configs()
+            await interaction.response.send_message(f"✅ Configuration `{config_id}` modifiée.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Erreur lors de la modification de la configuration : {e}", ephemeral=True)
 
 # Ajout du Cog d'envoi automatique de DM au bot
 bot.add_cog(AutoDMCog(bot))
+
 
 
 
