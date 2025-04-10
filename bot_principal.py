@@ -814,6 +814,243 @@ async def clear(interaction: discord.Interaction, nombre: int):
         else:
             await interaction.followup.send(f"❌ Erreur : {str(e)}", ephemeral=True)
 
+
+
+
+# ========================================
+# MODULE D'EXTENSION POUR L'ENVOI DE MESSAGES AUTOMATIQUES PAR ROLE
+# ========================================
+
+# Fichier de configuration pour les messages automatiques par rôle
+AUTO_DM_FILE = os.path.join(DATA_FOLDER, "auto_dm_configs.json")
+
+class AutoDMCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        # Dictionnaire des configurations, indexé par un identifiant unique
+        # Chaque entrée est de la forme : { "role_id": <str>, "dm_message": <str> }
+        self.auto_dm_configs = {}
+        self.bot.loop.create_task(self.load_configs())
+
+    async def load_configs(self):
+        self.auto_dm_configs = await charger_json_async(AUTO_DM_FILE)
+        print("⚙️ Configuration automatique DM chargée.")
+
+    async def save_configs(self):
+        await sauvegarder_json_async(AUTO_DM_FILE, self.auto_dm_configs)
+
+    # Listener pour détecter l'attribution d'un rôle
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
+        # Identifie les rôles nouvellement ajoutés
+        added_roles = set(after.roles) - set(before.roles)
+        for role in added_roles:
+            for config in self.auto_dm_configs.values():
+                if str(role.id) == config["role_id"]:
+                    try:
+                        await after.send(config["dm_message"])
+                        print(f"✅ DM automatique envoyé à {after} pour le rôle {role.name}")
+                    except Exception as e:
+                        print(f"❌ Erreur lors de l'envoi du DM à {after}: {e}")
+
+    # -------------------------------
+    # Commandes de gestion des messages automatiques par rôle
+    # -------------------------------
+
+    @app_commands.command(name="envoie_messages_automatiques_role_add", description="Ajoute une configuration d'envoi de DM automatique lors de l'attribution d'un rôle.")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(role="Le rôle concerné", dm_message="Le message qui sera envoyé en DM")
+    async def auto_dm_add(self, interaction: discord.Interaction, role: discord.Role, dm_message: str):
+        config_id = str(uuid.uuid4())
+        self.auto_dm_configs[config_id] = {
+            "role_id": str(role.id),
+            "dm_message": dm_message
+        }
+        await self.save_configs()
+        await interaction.response.send_message(f"✅ Configuration ajoutée avec ID `{config_id}` pour le rôle {role.mention}.", ephemeral=True)
+
+    @app_commands.command(name="envoie_messages_automatiques_role_list", description="Affiche la liste des configurations d'envoi de DM automatique.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def auto_dm_list(self, interaction: discord.Interaction):
+        if not self.auto_dm_configs:
+            await interaction.response.send_message("Aucune configuration d'envoi automatique n'est définie.", ephemeral=True)
+            return
+
+        message_lines = []
+        for config_id, config in self.auto_dm_configs.items():
+            role = interaction.guild.get_role(int(config["role_id"]))
+            role_name = role.name if role else f"ID {config['role_id']}"
+            message_lines.append(f"**ID :** `{config_id}`\n**Rôle :** {role_name}\n**Message DM :** {config['dm_message']}\n")
+        message_final = "\n".join(message_lines)
+        await interaction.response.send_message(message_final, ephemeral=True)
+
+    @app_commands.command(name="envoie_messages_automatiques_role_remove", description="Supprime une configuration d'envoi automatique de DM.")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(config_id="L'identifiant de la configuration à supprimer")
+    async def auto_dm_remove(self, interaction: discord.Interaction, config_id: str):
+        if config_id in self.auto_dm_configs:
+            del self.auto_dm_configs[config_id]
+            await self.save_configs()
+            await interaction.response.send_message(f"✅ Configuration `{config_id}` supprimée.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Identifiant non trouvé.", ephemeral=True)
+
+    @app_commands.command(name="envoie_messages_automatiques_role_modify", description="Modifie une configuration d'envoi automatique de DM.")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(
+        config_id="L'identifiant de la configuration à modifier",
+        new_role="Nouveau rôle (optionnel)",
+        new_dm_message="Nouveau message DM (optionnel)"
+    )
+    async def auto_dm_modify(self, interaction: discord.Interaction, config_id: str, new_role: discord.Role = None, new_dm_message: str = None):
+        if config_id not in self.auto_dm_configs:
+            await interaction.response.send_message("❌ Identifiant non trouvé.", ephemeral=True)
+            return
+
+        config = self.auto_dm_configs[config_id]
+        if new_role is not None:
+            config["role_id"] = str(new_role.id)
+        if new_dm_message is not None:
+            config["dm_message"] = new_dm_message
+
+        self.auto_dm_configs[config_id] = config
+        await self.save_configs()
+        await interaction.response.send_message(f"✅ Configuration `{config_id}` modifiée.", ephemeral=True)
+
+# Ajout du Cog d'envoi automatique de DM au bot
+bot.add_cog(AutoDMCog(bot))
+
+
+
+
+
+
+
+
+# ========================================
+# MODULE D'EXTENSION DE MODÉRATION
+# ========================================
+from discord import app_commands
+from discord.ext import commands
+import asyncio
+import discord
+
+class ModerationCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        # Liste initiale de mots interdits (en minuscule)
+        self.banned_words = {"merde", "putain", "con", "connard", "salop", "enculé", "nique ta mère"}
+    
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        # Ne pas modérer les messages du bot ou ceux des administrateurs
+        if message.author.bot:
+            return
+        if message.author.guild_permissions.administrator:
+            return
+
+        content_lower = message.content.lower()
+        for banned in self.banned_words:
+            if banned in content_lower:
+                try:
+                    await message.delete()
+                    print(f"Message supprimé de {message.author} pour contenu interdit.")
+                    try:
+                        await message.author.send("Votre message a été supprimé car il contenait des propos interdits.")
+                    except Exception as e:
+                        print(f"Impossible d'envoyer un DM à {message.author} : {e}")
+                except Exception as e:
+                    print(f"Erreur lors de la suppression d'un message : {e}")
+                break
+
+    # --- Commandes de gestion de la liste des mots bannis ---
+    @app_commands.command(name="list_banned_words", description="Affiche la liste des mots bannis.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def list_banned_words(self, interaction: discord.Interaction):
+        words = ", ".join(sorted(self.banned_words))
+        await interaction.response.send_message(f"Liste des mots bannis: {words}", ephemeral=True)
+
+    @app_commands.command(name="add_banned_word", description="Ajoute un mot à la liste des mots bannis.")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(word="Le mot à bannir")
+    async def add_banned_word(self, interaction: discord.Interaction, word: str):
+        word_lower = word.lower()
+        if word_lower in self.banned_words:
+            await interaction.response.send_message("Ce mot est déjà dans la liste des mots bannis.", ephemeral=True)
+        else:
+            self.banned_words.add(word_lower)
+            await interaction.response.send_message(f"Le mot '{word}' a été ajouté à la liste des mots bannis.", ephemeral=True)
+
+    @app_commands.command(name="remove_banned_word", description="Retire un mot de la liste des mots bannis.")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(word="Le mot à retirer")
+    async def remove_banned_word(self, interaction: discord.Interaction, word: str):
+        word_lower = word.lower()
+        if word_lower in self.banned_words:
+            self.banned_words.remove(word_lower)
+            await interaction.response.send_message(f"Le mot '{word}' a été retiré de la liste des mots bannis.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Ce mot n'est pas dans la liste des mots bannis.", ephemeral=True)
+
+    # --- Commandes de modération supplémentaires ---
+    @app_commands.command(name="mute", description="Mute un utilisateur pour un certain temps (en minutes).")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(member="Le membre à mute", duration="Durée du mute en minutes")
+    async def mute(self, interaction: discord.Interaction, member: discord.Member, duration: int):
+        # Cherche ou crée le rôle "Muted"
+        muted_role = discord.utils.get(interaction.guild.roles, name="Muted")
+        if not muted_role:
+            try:
+                muted_role = await interaction.guild.create_role(name="Muted", reason="Création du rôle Muted pour la modération.")
+                for channel in interaction.guild.channels:
+                    try:
+                        await channel.set_permissions(muted_role, send_messages=False, speak=False)
+                    except Exception as e:
+                        print(f"Erreur lors de la configuration des permissions sur {channel.name}: {e}")
+            except Exception as e:
+                await interaction.response.send_message(f"Erreur lors de la création du rôle Muted: {e}", ephemeral=True)
+                return
+        try:
+            await member.add_roles(muted_role, reason="Mute par modération.")
+            await interaction.response.send_message(f"{member.mention} a été mute pour {duration} minutes.", ephemeral=True)
+            await asyncio.sleep(duration * 60)
+            await member.remove_roles(muted_role, reason="Fin du mute.")
+            await interaction.followup.send(f"{member.mention} n'est plus mute.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Erreur lors du mute: {e}", ephemeral=True)
+
+    @app_commands.command(name="ban", description="Bannit un utilisateur du serveur.")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(member="Le membre à bannir", reason="Raison du bannissement (facultatif)")
+    async def ban(self, interaction: discord.Interaction, member: discord.Member, reason: str = "Aucune raison fournie"):
+        try:
+            await member.ban(reason=reason)
+            await interaction.response.send_message(f"{member.mention} a été banni. Raison: {reason}", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Erreur lors du bannissement de {member.mention}: {e}", ephemeral=True)
+
+    @app_commands.command(name="kick", description="Expulse un utilisateur du serveur.")
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.describe(member="Le membre à expulser", reason="Raison de l'expulsion (facultatif)")
+    async def kick(self, interaction: discord.Interaction, member: discord.Member, reason: str = "Aucune raison fournie"):
+        try:
+            await member.kick(reason=reason)
+            await interaction.response.send_message(f"{member.mention} a été expulsé. Raison: {reason}", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Erreur lors de l'expulsion de {member.mention}: {e}", ephemeral=True)
+
+# Ajout du Cog de modération au bot
+bot.add_cog(ModerationCog(bot))
+
+
+
+
+
+
+
+
+
+
 # ========================================
 # 🌐 Serveur HTTP keep-alive (amélioré)
 # ========================================
