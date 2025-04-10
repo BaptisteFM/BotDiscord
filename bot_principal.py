@@ -487,8 +487,9 @@ async def leaderboard(interaction: discord.Interaction):
     else:
         texte = textwrap.dedent(f"""
             🏆 **Top 10 XP :**
-            {'\n'.join(lignes)}
+            {chr(10).join(lignes)}
         """)
+
 
     await interaction.response.send_message(texte.strip(), ephemeral=True)
 
