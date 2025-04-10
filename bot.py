@@ -1,6 +1,8 @@
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
+from discord.ui import Modal, TextInput
+from discord import TextStyle
 import os
 from dotenv import load_dotenv
 import json
@@ -8,7 +10,6 @@ import time
 import asyncio
 import textwrap
 import datetime
-
 
 # Charger le .env et récupérer le TOKEN
 load_dotenv()
@@ -41,27 +42,19 @@ class MyBot(commands.Bot):
             "titres": {}                 # {xp: titre}
         }
         self.vocal_start_times = {}
-        self.programmed_messages = []  # [{day, hour, channel_id, content}]
+        self.programmed_messages = []
         self.XP_FILE = "xp.json"
 
     async def setup_hook(self):
-        await self.tree.sync()
-        print("🌐 Slash commands synchronisées globalement")
+        try:
+            synced = await self.tree.sync(guild=None)
+            print(f"🌐 {len(synced)} commandes slash synchronisées (globalement)")
+        except Exception as e:
+            print(f"❌ Erreur synchronisation : {e}")
 
+# Initialisation du bot
 bot = MyBot()
-tree = bot.tree  # raccourci pour les commandes slash
-async def setup_hook(self):
-    try:
-        synced = await self.tree.sync(guild=None)
-        print(f"🌐 {len(synced)} commandes slash synchronisées (globalement)")
-    except Exception as e:
-        print(f"❌ Erreur synchronisation : {e}")
-
-
-
-
-from discord.ui import Modal, TextInput
-from discord import TextStyle
+tree = bot.tree  # Raccourci pour les commandes slash
 
 
 # =======================================
@@ -545,7 +538,7 @@ async def ajouter_titre(interaction: discord.Interaction, xp: int, titre: str):
 
 
 # ========================================
-# ⏰ Système de messages programmés (format FR corrigé)
+# ⏰ Système de messages programmés (optimisé + modal modification)
 # ========================================
 
 import datetime, time, os, json, textwrap
@@ -553,8 +546,9 @@ from discord.ext import tasks
 from discord import app_commands, TextStyle
 from discord.ui import Modal, TextInput
 
-# Chargement du fichier JSON
 MSG_FILE = "messages_programmes.json"
+
+# Chargement des messages programmés
 if os.path.exists(MSG_FILE):
     with open(MSG_FILE, "r") as f:
         bot.programmed_messages = json.load(f)
@@ -567,17 +561,20 @@ def save_programmed_messages():
     with open(MSG_FILE, "w") as f:
         json.dump(bot.programmed_messages, f, indent=4)
 
-# Boucle de vérification toutes les 60 secondes
+# Boucle vérification régulière
 @tasks.loop(seconds=60)
 async def check_programmed_messages():
     now = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
     to_remove = []
 
-    for key, data in bot.programmed_messages.items():
+    for key, data in list(bot.programmed_messages.items()):
         if data["next"] == now:
             channel = bot.get_channel(int(data["channel_id"]))
             if channel:
-                await channel.send(textwrap.dedent(data["message"]))
+                try:
+                    await channel.send(textwrap.dedent(data["message"]))
+                except Exception as e:
+                    print(f"❌ Erreur envoi message programmé {key} : {e}")
 
             if data["type"] == "once":
                 to_remove.append(key)
@@ -594,24 +591,24 @@ async def check_programmed_messages():
     save_programmed_messages()
 
 # ========================================
-# 📅 Modal de programmation
+# 📅 Modal de création
 # ========================================
 
 class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
-
-    contenu = TextInput(
-        label="Contenu du message (sauts de ligne autorisés)",
-        style=TextStyle.paragraph,
-        placeholder="Tape ici ton message à programmer...",
-        required=True,
-        max_length=2000
-    )
-
     def __init__(self, salon, type, date_heure):
-        super().__init__()
+        super().__init__(timeout=None)
         self.salon = salon
         self.type = type
         self.date_heure = date_heure
+
+        self.contenu = TextInput(
+            label="Contenu du message",
+            style=TextStyle.paragraph,
+            placeholder="Tape ici ton message à programmer...",
+            required=True,
+            max_length=2000,
+            custom_id="programmer_message_contenu"
+        )
         self.add_item(self.contenu)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -625,11 +622,7 @@ class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
                 "next": self.date_heure
             }
             save_programmed_messages()
-
-            await interaction.followup.send(
-                f"✅ Message planifié pour {self.date_heure} ({self.type}) dans {self.salon.mention}",
-                ephemeral=True
-            )
+            await interaction.followup.send(f"✅ Message planifié pour {self.date_heure} ({self.type}) dans {self.salon.mention}", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ Erreur : {str(e)}", ephemeral=True)
 
@@ -642,7 +635,7 @@ class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
 @app_commands.describe(
     salon="Salon où envoyer le message",
     type="Type d'envoi : once, daily ou weekly",
-    date_heure="Date et heure de 1er envoi (JJ/MM/AAAA HH:MM)"
+    date_heure="Date et heure du 1er envoi (JJ/MM/AAAA HH:MM)"
 )
 async def programmer_message(interaction: discord.Interaction, salon: discord.TextChannel, type: str, date_heure: str):
     try:
@@ -651,8 +644,7 @@ async def programmer_message(interaction: discord.Interaction, salon: discord.Te
         await interaction.response.send_message("❌ Format invalide. Utilise : JJ/MM/AAAA HH:MM", ephemeral=True)
         return
 
-    modal = ProgrammerMessageModal(salon, type, date_heure)
-    await interaction.response.send_modal(modal)
+    await interaction.response.send_modal(ProgrammerMessageModal(salon, type, date_heure))
 
 # ========================================
 # 🗑️ Commande /supprimer_message
@@ -682,35 +674,76 @@ async def messages_programmes(interaction: discord.Interaction):
 
     texte = "**🗓️ Messages programmés :**\n"
     for msg_id, data in bot.programmed_messages.items():
-        texte += f"🆔 `{msg_id}` - Salon : <#{data['channel_id']}> - ⏰ {data['next']} - 🔁 {data['type']}\n"
+        texte += f"🆔 `{msg_id}` — Salon : <#{data['channel_id']}> — ⏰ {data['next']} — 🔁 {data['type']}\n"
 
     await interaction.response.send_message(texte, ephemeral=True)
 
 # ========================================
-# ✏️ Commande /modifier_message_programme
+# ✏️ Commande /modifier_message_programme (AVEC MODAL)
 # ========================================
 
-@tree.command(name="modifier_message_programme", description="Modifie un message programmé")
+class ModifierMessageModal(Modal, title="✏️ Modifier un message programmé"):
+    def __init__(self, message_id):
+        super().__init__(timeout=None)
+        self.message_id = message_id
+
+        self.nouveau_contenu = TextInput(
+            label="Nouveau message",
+            style=TextStyle.paragraph,
+            placeholder="Saisis ici le nouveau contenu...",
+            required=True,
+            max_length=2000,
+            custom_id="modifier_programme_contenu"
+        )
+        self.add_item(self.nouveau_contenu)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        if self.message_id in bot.programmed_messages:
+            bot.programmed_messages[self.message_id]["message"] = textwrap.dedent(self.nouveau_contenu.value)
+            save_programmed_messages()
+            await interaction.followup.send("✅ Message programmé mis à jour avec succès.", ephemeral=True)
+        else:
+            await interaction.followup.send("❌ ID du message introuvable.", ephemeral=True)
+
+@tree.command(name="modifier_message_programme", description="Modifie un message programmé via un modal")
 @app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(message_id="ID du message programmé", nouveau_message="Nouveau contenu")
-async def modifier_message_programme(interaction: discord.Interaction, message_id: str, nouveau_message: str):
-    if message_id in bot.programmed_messages:
-        bot.programmed_messages[message_id]["message"] = textwrap.dedent(nouveau_message)
-        save_programmed_messages()
-        await interaction.response.send_message("✅ Message mis à jour", ephemeral=True)
-    else:
-        await interaction.response.send_message("❌ ID introuvable", ephemeral=True)
+@app_commands.describe(message_id="ID du message à modifier")
+async def modifier_message_programme(interaction: discord.Interaction, message_id: str):
+    if message_id not in bot.programmed_messages:
+        await interaction.response.send_message("❌ ID introuvable.", ephemeral=True)
+        return
+
+    await interaction.response.send_modal(ModifierMessageModal(message_id))
 
 
+
+
+import json
+
+# Chargement des défis au démarrage
+DEFIS_FILE = "defis.json"
+if os.path.exists(DEFIS_FILE):
+    with open(DEFIS_FILE, "r") as f:
+        bot.defi_messages = json.load(f)
+        # Convertir les clés en int
+        bot.defi_messages = {int(k): v for k, v in bot.defi_messages.items()}
+else:
+    bot.defi_messages = {}
+    with open(DEFIS_FILE, "w") as f:
+        json.dump({}, f)
+
+def save_defis():
+    with open(DEFIS_FILE, "w") as f:
+        json.dump(bot.defi_messages, f, indent=4)
 
 # ========================================
-# 🏁 Défi de la semaine avec rôle temporaire (version MODAL + anti-freeze)
+# 🔥 Modal de défi
 # ========================================
-
 from discord.ui import Modal, TextInput
 from discord import TextStyle
 
-class DefiModal(discord.ui.Modal, title="🔥 Défi de la semaine"):
+class DefiModal(Modal, title="🔥 Défi de la semaine"):
 
     def __init__(self, salon, role, durée_heures):
         super().__init__()
@@ -728,45 +761,50 @@ class DefiModal(discord.ui.Modal, title="🔥 Défi de la semaine"):
         self.add_item(self.message)
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)  # ✅ Protection contre les freezes
+        await interaction.response.defer(ephemeral=True)
         try:
-            # Envoi du message avec mise en forme
             msg = await self.salon.send(textwrap.dedent(self.message.value))
             await msg.add_reaction("✅")
 
-            # Stockage pour suivi des réactions
-            if not hasattr(bot, "defi_messages"):
-                bot.defi_messages = {}
             bot.defi_messages[msg.id] = {
                 "role_id": self.role.id,
                 "end_timestamp": time.time() + self.durée_heures * 3600
             }
+            save_defis()
 
-            # Planification de la suppression du rôle
-            async def remove_role_later():
-                await asyncio.sleep(self.durée_heures * 3600)
-                guild = interaction.guild
-                for member in guild.members:
-                    if self.role in member.roles:
-                        try:
-                            await member.remove_roles(self.role, reason="Fin du défi")
-                        except:
-                            pass
-                if msg.id in bot.defi_messages:
-                    del bot.defi_messages[msg.id]
-
-            asyncio.create_task(remove_role_later())
+            asyncio.create_task(remove_role_later(interaction.guild, msg.id, self.role))
 
             await interaction.followup.send(
-                f"✅ Défi posté dans {self.salon.mention} avec rôle temporaire **{self.role.name}** pendant **{self.durée_heures}h**",
+                f"✅ Défi posté dans {self.salon.mention} avec rôle **{self.role.name}** pendant **{self.durée_heures}h**",
                 ephemeral=True
             )
-
         except Exception as e:
             await interaction.followup.send(f"❌ Erreur : {str(e)}", ephemeral=True)
 
 # ========================================
-# 📌 Commande /defi_semaine — version avec modal
+# 🔄 Suppression automatique du rôle
+# ========================================
+async def remove_role_later(guild, message_id, role):
+    try:
+        temps_restant = bot.defi_messages[message_id]["end_timestamp"] - time.time()
+        await asyncio.sleep(max(0, temps_restant))
+
+        for member in guild.members:
+            if role in member.roles:
+                try:
+                    await member.remove_roles(role, reason="Fin du défi")
+                except:
+                    pass
+
+        if message_id in bot.defi_messages:
+            del bot.defi_messages[message_id]
+            save_defis()
+
+    except Exception as e:
+        print(f"❌ Erreur dans la suppression du rôle défi : {e}")
+
+# ========================================
+# 📌 Commande /defi_semaine
 # ========================================
 @tree.command(name="defi_semaine", description="Lance un défi hebdomadaire avec rôle temporaire")
 @app_commands.checks.has_permissions(administrator=True)
@@ -776,32 +814,30 @@ class DefiModal(discord.ui.Modal, title="🔥 Défi de la semaine"):
     durée_heures="Durée du défi en heures (ex: 168 pour 7 jours)"
 )
 async def defi_semaine(interaction: discord.Interaction, salon: discord.TextChannel, role: discord.Role, durée_heures: int):
-    modal = DefiModal(salon, role, durée_heures)
-    await interaction.response.send_modal(modal)
+    await interaction.response.send_modal(DefiModal(salon, role, durée_heures))
 
 # ========================================
-# 🎯 Gestion des réactions défi
+# ✅ Gestion des réactions défi
 # ========================================
-
 @bot.event
 async def on_raw_reaction_add(payload):
-    if hasattr(bot, "defi_messages") and payload.message_id in bot.defi_messages:
-        if str(payload.emoji) == "✅":
-            guild = bot.get_guild(payload.guild_id)
-            member = guild.get_member(payload.user_id)
-            role = guild.get_role(bot.defi_messages[payload.message_id]["role_id"])
-            if role and member and not member.bot:
-                await member.add_roles(role, reason="Participation au défi")
+    if payload.message_id in bot.defi_messages and str(payload.emoji) == "✅":
+        guild = bot.get_guild(payload.guild_id)
+        member = guild.get_member(payload.user_id)
+        role_id = bot.defi_messages[payload.message_id]["role_id"]
+        role = guild.get_role(role_id)
+        if role and member and not member.bot:
+            await member.add_roles(role, reason="Participation au défi")
 
 @bot.event
 async def on_raw_reaction_remove(payload):
-    if hasattr(bot, "defi_messages") and payload.message_id in bot.defi_messages:
-        if str(payload.emoji) == "✅":
-            guild = bot.get_guild(payload.guild_id)
-            member = guild.get_member(payload.user_id)
-            role = guild.get_role(bot.defi_messages[payload.message_id]["role_id"])
-            if role and member and not member.bot:
-                await member.remove_roles(role, reason="Abandon du défi")
+    if payload.message_id in bot.defi_messages and str(payload.emoji) == "✅":
+        guild = bot.get_guild(payload.guild_id)
+        member = guild.get_member(payload.user_id)
+        role_id = bot.defi_messages[payload.message_id]["role_id"]
+        role = guild.get_role(role_id)
+        if role and member and not member.bot:
+            await member.remove_roles(role, reason="Abandon du défi")
 
 
 
