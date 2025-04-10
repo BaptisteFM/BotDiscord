@@ -9,6 +9,8 @@ import asyncio
 import textwrap
 import time
 import datetime
+from zoneinfo import ZoneInfo  # Gestion explicite du fuseau horaire
+import uuid
 import aiofiles  # Pour l'accès asynchrone aux fichiers
 
 # Pour le serveur HTTP de keep-alive
@@ -56,7 +58,6 @@ async def sauvegarder_json_async(path, data):
         async with aiofiles.open(path, "w", encoding="utf-8") as f:
             await f.write(json.dumps(data, indent=4))
 
-
 # ========================================
 # Utilitaire pour standardiser la clé d'un emoji
 # ========================================
@@ -69,7 +70,6 @@ def get_emoji_key(emoji):
             return str(pe)
     except Exception:
         return str(emoji)
-
 
 # ========================================
 # Variables globales pour les données persistantes
@@ -136,23 +136,24 @@ async def check_programmed_messages():
             print("⏳ Bot pas encore prêt, attente...")
             return
 
-        now = datetime.datetime.now()
-        print(f"🔁 [check_programmed_messages] Vérification à {now.strftime('%H:%M:%S')}")
+        # Récupère l'heure actuelle en Europe/Paris
+        now = datetime.datetime.now(ZoneInfo("Europe/Paris"))
+        print(f"🔁 [check_programmed_messages] Vérification à {now.strftime('%H:%M:%S')} (Europe/Paris)")
 
-        messages_modifiés = False
+        messages_modifies = False
 
         for msg_id, msg in list(messages_programmes.items()):
             try:
-                # Tente de parser la date programmée; en cas d'erreur, on journalise et on ignore ce message
+                # Parse la date programmée et la rend timezone-aware
                 try:
-                    msg_time = datetime.datetime.strptime(msg["next"], "%d/%m/%Y %H:%M")
+                    msg_time_naive = datetime.datetime.strptime(msg["next"], "%d/%m/%Y %H:%M")
+                    msg_time = msg_time_naive.replace(tzinfo=ZoneInfo("Europe/Paris"))
                 except ValueError as ve:
                     print(f"❌ Format de date invalide pour le message {msg_id} : {ve}")
                     continue
 
-                delta = (now - msg_time).total_seconds()
-
-                if 0 <= delta < 60:
+                # Si l'heure actuelle est égale ou a dépassé l'heure programmée
+                if now >= msg_time:
                     channel = bot.get_channel(int(msg["channel_id"]))
                     if channel:
                         await channel.send(textwrap.dedent(msg["message"]))
@@ -160,22 +161,24 @@ async def check_programmed_messages():
 
                     if msg["type"] == "once":
                         del messages_programmes[msg_id]
-                        messages_modifiés = True
+                        messages_modifies = True
                         print(f"🗑️ Message {msg_id} supprimé (type: once)")
                     else:
-                        next_time = msg_time
+                        # Pour les messages récurrents, on reprogramme en tenant compte d'éventuels retards
                         if msg["type"] == "daily":
-                            next_time += datetime.timedelta(days=1)
+                            while now >= msg_time:
+                                msg_time += datetime.timedelta(days=1)
                         elif msg["type"] == "weekly":
-                            next_time += datetime.timedelta(weeks=1)
-                        messages_programmes[msg_id]["next"] = next_time.strftime("%d/%m/%Y %H:%M")
-                        messages_modifiés = True
+                            while now >= msg_time:
+                                msg_time += datetime.timedelta(weeks=1)
+                        messages_programmes[msg_id]["next"] = msg_time.strftime("%d/%m/%Y %H:%M")
+                        messages_modifies = True
                         print(f"🔄 Message {msg_id} reprogrammé pour {messages_programmes[msg_id]['next']}")
 
             except Exception as e:
                 print(f"❌ Erreur traitement message {msg_id} : {e}")
 
-        if messages_modifiés:
+        if messages_modifies:
             await sauvegarder_json_async(MSG_FILE, messages_programmes)
 
     except Exception as e:
@@ -218,9 +221,7 @@ async def on_message(message):
                     if bot.xp_config["announcement_channel"]:
                         salon = bot.get_channel(int(bot.xp_config["announcement_channel"]))
                         if salon:
-                            texte = bot.xp_config["announcement_message"] \
-                                       .replace("{mention}", message.author.mention) \
-                                       .replace("{xp}", str(current_xp))
+                            texte = bot.xp_config["announcement_message"].replace("{mention}", message.author.mention).replace("{xp}", str(current_xp))
                             await salon.send(texte)
                 except Exception as e:
                     print(f"❌ Erreur rôle XP : {e}")
@@ -251,9 +252,7 @@ async def on_voice_state_update(member, before, after):
                             if bot.xp_config["announcement_channel"]:
                                 salon = bot.get_channel(int(bot.xp_config["announcement_channel"]))
                                 if salon:
-                                    texte = bot.xp_config["announcement_message"] \
-                                               .replace("{mention}", member.mention) \
-                                               .replace("{xp}", str(current_xp))
+                                    texte = bot.xp_config["announcement_message"].replace("{mention}", member.mention).replace("{xp}", str(current_xp))
                                     await salon.send(texte)
                         except Exception as e:
                             print(f"❌ Erreur rôle vocal : {e}")
@@ -405,7 +404,7 @@ class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
         super().__init__(timeout=None)
         self.salon = salon
         self.type = type
-        self.date_heure = date_heure
+        self.date_heure = date_heure  # Format attendu : "JJ/MM/AAAA HH:MM" en Europe/Paris
 
         self.contenu = TextInput(
             label="Contenu du message",
@@ -424,7 +423,8 @@ class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
                 await interaction.followup.send("❌ Le message est trop long après formatage (max 2000 caractères).", ephemeral=True)
                 return
 
-            msg_id = str(int(time.time()))
+            # Utilisation de uuid4 pour générer un identifiant unique
+            msg_id = str(uuid.uuid4())
             messages_programmes[msg_id] = {
                 "channel_id": str(self.salon.id),
                 "message": texte_final,
@@ -527,10 +527,8 @@ async def modifier_message_programmé(interaction: discord.Interaction, message_
 class RoleReactionModal(Modal, title="✍️ Créer un message avec formatage"):
     def __init__(self, emoji: str, role: discord.Role, salon: discord.TextChannel):
         super().__init__(timeout=None)
-        # Conversion en vérifiant via get_emoji_key
         try:
             self.emoji = discord.PartialEmoji.from_str(emoji)
-            # Obtenir la clé normalisée
             self.emoji_key = get_emoji_key(self.emoji)
         except Exception as e:
             raise ValueError(f"Emoji invalide : {emoji}") from e
@@ -553,13 +551,9 @@ class RoleReactionModal(Modal, title="✍️ Créer un message avec formatage"):
         try:
             message_envoye = await self.salon.send(textwrap.dedent(self.contenu.value))
             await message_envoye.add_reaction(self.emoji)
-
             bot.reaction_roles[message_envoye.id] = {self.emoji_key: self.role.id}
-
             await interaction.followup.send(
-                f"✅ Nouveau message envoyé dans {self.salon.mention}\n"
-                f"- Emoji utilisé : {self.emoji}\n"
-                f"- Rôle associé : **{self.role.name}**",
+                f"✅ Nouveau message envoyé dans {self.salon.mention}\n- Emoji utilisé : {self.emoji}\n- Rôle associé : **{self.role.name}**",
                 ephemeral=True
             )
         except Exception as e:
@@ -727,7 +721,6 @@ async def retirer_role_après_defi(guild, message_id, role):
         temps_restant = data["end_timestamp"] - time.time()
         await asyncio.sleep(max(0, temps_restant))
 
-        # Itérer uniquement sur les membres possédant le rôle grâce à role.members
         for member in role.members:
             try:
                 await member.remove_roles(role, reason="Fin du défi hebdomadaire")
@@ -782,10 +775,7 @@ class ModalEnvoyerMessage(Modal, title="📩 Envoyer un message formaté"):
         await interaction.response.defer(ephemeral=True)
         try:
             await self.salon.send(textwrap.dedent(self.contenu.value))
-            await interaction.followup.send(
-                f"✅ Message envoyé dans {self.salon.mention}",
-                ephemeral=True
-            )
+            await interaction.followup.send(f"✅ Message envoyé dans {self.salon.mention}", ephemeral=True)
         except discord.Forbidden:
             await interaction.followup.send("❌ Le bot n’a pas la permission d’envoyer un message dans ce salon.", ephemeral=True)
         except Exception as e:
@@ -815,10 +805,7 @@ async def clear(interaction: discord.Interaction, nombre: int):
     try:
         await interaction.response.defer(ephemeral=True)
         deleted = await interaction.channel.purge(limit=nombre)
-        await interaction.followup.send(
-            f"🧽 {len(deleted)} messages supprimés avec succès.",
-            ephemeral=True
-        )
+        await interaction.followup.send(f"🧽 {len(deleted)} messages supprimés avec succès.", ephemeral=True)
     except discord.Forbidden:
         await interaction.followup.send("❌ Le bot n’a pas la permission de supprimer des messages dans ce salon.", ephemeral=True)
     except Exception as e:
@@ -841,7 +828,6 @@ class KeepAliveHandler(BaseHTTPRequestHandler):
 
 def keep_alive(port=10000):
     try:
-        # Liaison sur toutes les interfaces pour être accessible
         server = HTTPServer(('0.0.0.0', port), KeepAliveHandler)
         thread = threading.Thread(target=server.serve_forever, name="KeepAliveThread")
         thread.daemon = True
@@ -867,7 +853,6 @@ async def on_ready():
 async def main():
     global xp_data, messages_programmes, defis_data
     try:
-        # Chargement asynchrone initial des fichiers de données
         xp_data = await charger_json_async(XP_FILE)
         messages_programmes = await charger_json_async(MSG_FILE)
         defis_data = await charger_json_async(DEFIS_FILE)
