@@ -89,31 +89,32 @@ tree = bot.tree
 
 
 # ========================================
-# 🔁 Boucle d'envoi automatique (messages programmés)
+# ⏰ Boucle des messages programmés (version finale blindée avec logs)
 # ========================================
-
 @tasks.loop(seconds=30)
 async def check_programmed_messages():
     await bot.wait_until_ready()
     now = datetime.datetime.now()
 
-    try:
-        print("✅ Vérification des messages programmés...")  # Log toutes les 30 sec
+    print(f"🔁 [check_programmed_messages] Vérification des messages programmés à {now.strftime('%H:%M:%S')}")
 
+    try:
         for msg_id, msg in list(messages_programmes.items()):
             try:
                 msg_time = datetime.datetime.strptime(msg["next"], "%d/%m/%Y %H:%M")
+                delta = (now - msg_time).total_seconds()
 
                 # ✅ Tolérance de 60 secondes pour éviter de rater l'envoi
-                if 0 <= (now - msg_time).total_seconds() < 60:
+                if 0 <= delta < 60:
                     channel = bot.get_channel(int(msg["channel_id"]))
                     if channel:
                         await channel.send(textwrap.dedent(msg["message"]))
-                        print(f"📤 Message envoyé dans {channel.name} ({msg_id})")
+                        print(f"✅ Message {msg_id} envoyé dans #{channel.name}")
 
                     # 🔁 Mise à jour ou suppression
                     if msg["type"] == "once":
                         del messages_programmes[msg_id]
+                        print(f"🗑️ Message {msg_id} supprimé (type: once)")
                     else:
                         next_time = msg_time
                         if msg["type"] == "daily":
@@ -121,15 +122,15 @@ async def check_programmed_messages():
                         elif msg["type"] == "weekly":
                             next_time += datetime.timedelta(weeks=1)
                         messages_programmes[msg_id]["next"] = next_time.strftime("%d/%m/%Y %H:%M")
+                        print(f"🔄 Message {msg_id} reprogrammé pour {messages_programmes[msg_id]['next']}")
 
             except Exception as e:
-                print(f"❌ Erreur envoi message [{msg_id}] : {e}")
+                print(f"❌ Erreur en traitant le message {msg_id} : {e}")
 
         sauvegarder_json(MSG_FILE, messages_programmes)
 
     except Exception as e:
-        print(f"❌ Erreur dans la boucle check_programmed_messages : {e}")
-
+        print(f"❌ Erreur globale dans check_programmed_messages : {e}")
 
 
 
