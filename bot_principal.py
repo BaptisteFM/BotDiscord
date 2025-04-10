@@ -1072,6 +1072,47 @@ async def creer_salons(interaction: discord.Interaction, category: discord.Categ
 
 
 
+# ========================================
+# 🔧 /creer_roles — Créer plusieurs rôles rapidement
+# ========================================
+@tree.command(name="creer_roles", description="Crée plusieurs rôles avec des noms personnalisés et une couleur optionnelle.")
+@app_commands.describe(
+    names="Liste des noms de rôles séparés par des virgules (ex: 'VIP, Membre, Staff')",
+    color="(Optionnel) Code couleur hexadécimal pour les rôles (ex: #FF5733)"
+)
+async def creer_roles(interaction: discord.Interaction, names: str, color: str = None):
+    # Convertir la chaîne en liste de noms
+    liste_roles = [role.strip() for role in names.split(",") if role.strip()]
+    liste_crees = []
+    role_color = None
+
+    # Convertir le code couleur en discord.Color si fourni
+    if color:
+        try:
+            color = color.strip()
+            if color.startswith("#"):
+                color = color[1:]
+            role_color = discord.Color(int(color, 16))
+        except Exception as e:
+            await interaction.response.send_message("❌ Le code couleur est invalide. Utilise un code hexadécimal correct (ex: #FF5733).", ephemeral=True)
+            return
+
+    for role_name in liste_roles:
+        try:
+            nouveau_role = await interaction.guild.create_role(
+                name=role_name,
+                color=role_color,
+                mentionable=True  # Rendre le rôle mentionnable pour plus de visibilité
+            )
+            liste_crees.append(nouveau_role.name)
+        except Exception as e:
+            print(f"❌ Erreur lors de la création du rôle '{role_name}' : {e}")
+
+    if liste_crees:
+        await interaction.response.send_message(f"✅ Rôles créés : {', '.join(liste_crees)}", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ Aucun rôle n'a pu être créé.", ephemeral=True)
+
 
 
 # ========================================
