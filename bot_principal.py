@@ -1027,13 +1027,71 @@ async def creer_categories(interaction: discord.Interaction, names: str, roles: 
 
 
 # ========================================
-# 🔧 /creer_salons — Créer plusieurs salons dans une catégorie existante
+# 🔧 /creer_categories — Créer plusieurs catégories avec des permissions personnalisées (Admin uniquement)
 # ========================================
-@tree.command(name="creer_salons", description="Crée plusieurs salons dans une catégorie choisie.")
+@tree.command(name="creer_categories", description="Crée plusieurs catégories avec des noms personnalisés (emojis acceptés) et définit les rôles pouvant y accéder. (Admin uniquement)")
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(
+    names="Liste des noms de catégories séparés par des virgules (ex: '🎮 Jeux, 💬 Discussions, 📚 Lecture')",
+    roles="Liste des rôles à autoriser (séparés par des virgules ; utilise les mentions ou les noms exacts)"
+)
+async def creer_categories(interaction: discord.Interaction, names: str, roles: str):
+    # Convertir la chaîne des noms en liste
+    liste_categories = [nom.strip() for nom in names.split(",") if nom.strip()]
+    
+    # Récupérer les rôles à partir de la chaîne (supporte mentions et noms)
+    roles_autorises = []
+    for role_str in roles.split(","):
+        role_str = role_str.strip()
+        role_obj = None
+        if role_str.startswith("<@&") and role_str.endswith(">"):
+            try:
+                role_id = int(role_str[3:-1])
+                role_obj = interaction.guild.get_role(role_id)
+            except Exception:
+                pass
+        else:
+            role_obj = discord.utils.get(interaction.guild.roles, name=role_str)
+        if role_obj:
+            roles_autorises.append(role_obj)
+    
+    if not liste_categories:
+        await interaction.response.send_message("❌ Aucun nom de catégorie fourni.", ephemeral=True)
+        return
+
+    if not roles_autorises:
+        await interaction.response.send_message("❌ Aucun rôle valide trouvé. Utilise une mention (ex: <@&123456789>) ou le nom exact du rôle.", ephemeral=True)
+        return
+
+    liste_crees = []
+    for cat_name in liste_categories:
+        # Définir les permissions : deny pour @everyone, allow pour chacun des rôles spécifiés
+        overwrites = {
+            interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False)
+        }
+        for role in roles_autorises:
+            overwrites[role] = discord.PermissionOverwrite(view_channel=True)
+        try:
+            nouvelle_categorie = await interaction.guild.create_category(name=cat_name, overwrites=overwrites)
+            liste_crees.append(nouvelle_categorie.name)
+        except Exception as e:
+            print(f"❌ Erreur lors de la création de la catégorie '{cat_name}' : {e}")
+
+    if liste_crees:
+        await interaction.response.send_message(f"✅ Catégories créées : {', '.join(liste_crees)}", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ Aucune catégorie n'a pu être créée.", ephemeral=True)
+
+
+# ========================================
+# 🔧 /creer_salons — Créer plusieurs salons dans une catégorie existante (Admin uniquement)
+# ========================================
+@tree.command(name="creer_salons", description="Crée plusieurs salons dans une catégorie choisie. (Admin uniquement)")
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(
     category="La catégorie dans laquelle créer les salons",
-    names="Liste des noms de salons séparés par des virgules (ex: 'général, discussions, annonces')",
-    type="Type de salon à créer : 'text', 'voice' ou 'both' (pour créer à la fois un salon texte et un salon vocal)"
+    names="Liste des noms de salons séparés par des virgules (ex: 'général, annonces, debates')",
+    type="Type de salon : 'text', 'voice' ou 'both' (pour créer à la fois un salon texte et un salon vocal)"
 )
 async def creer_salons(interaction: discord.Interaction, category: discord.CategoryChannel, names: str, type: str):
     liste_salons = [n.strip() for n in names.split(",") if n.strip()]
@@ -1042,7 +1100,6 @@ async def creer_salons(interaction: discord.Interaction, category: discord.Categ
         return
 
     liste_crees = []
-    # Validation du type de salon
     type_lower = type.lower()
     if type_lower not in ["text", "voice", "both"]:
         await interaction.response.send_message("❌ Type inconnu. Utilise 'text', 'voice' ou 'both'.", ephemeral=True)
@@ -1057,7 +1114,7 @@ async def creer_salons(interaction: discord.Interaction, category: discord.Categ
                 salon = await interaction.guild.create_voice_channel(name=salon_name, category=category)
                 liste_crees.append(salon.name)
             elif type_lower == "both":
-                # Crée un salon texte et un salon vocal pour chaque nom
+                # Créer à la fois un salon texte et un salon vocal
                 salon_text = await interaction.guild.create_text_channel(name=f"{salon_name}-text", category=category)
                 salon_voice = await interaction.guild.create_voice_channel(name=f"{salon_name}-voice", category=category)
                 liste_crees.append(f"{salon_text.name} & {salon_voice.name}")
@@ -1070,23 +1127,21 @@ async def creer_salons(interaction: discord.Interaction, category: discord.Categ
         await interaction.response.send_message("❌ Aucun salon n'a pu être créé.", ephemeral=True)
 
 
-
-
 # ========================================
-# 🔧 /creer_roles — Créer plusieurs rôles rapidement
+# 🔧 /creer_roles — Créer plusieurs rôles rapidement (Admin uniquement)
 # ========================================
-@tree.command(name="creer_roles", description="Crée plusieurs rôles avec des noms personnalisés et une couleur optionnelle.")
+@tree.command(name="creer_roles", description="Crée plusieurs rôles avec des noms personnalisés et une couleur optionnelle. (Admin uniquement)")
+@app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(
     names="Liste des noms de rôles séparés par des virgules (ex: 'VIP, Membre, Staff')",
-    color="(Optionnel) Code couleur hexadécimal pour les rôles (ex: #FF5733)"
+    color="(Optionnel) Code couleur hexadécimal (ex: #FF5733) à appliquer à tous les rôles"
 )
 async def creer_roles(interaction: discord.Interaction, names: str, color: str = None):
-    # Convertir la chaîne en liste de noms
     liste_roles = [role.strip() for role in names.split(",") if role.strip()]
     liste_crees = []
     role_color = None
 
-    # Convertir le code couleur en discord.Color si fourni
+    # Conversion du code couleur en objet discord.Color si fourni
     if color:
         try:
             color = color.strip()
@@ -1102,7 +1157,7 @@ async def creer_roles(interaction: discord.Interaction, names: str, color: str =
             nouveau_role = await interaction.guild.create_role(
                 name=role_name,
                 color=role_color,
-                mentionable=True  # Rendre le rôle mentionnable pour plus de visibilité
+                mentionable=True  # Rendre le rôle mentionnable pour une meilleure visibilité
             )
             liste_crees.append(nouveau_role.name)
         except Exception as e:
@@ -1112,6 +1167,7 @@ async def creer_roles(interaction: discord.Interaction, names: str, color: str =
         await interaction.response.send_message(f"✅ Rôles créés : {', '.join(liste_crees)}", ephemeral=True)
     else:
         await interaction.response.send_message("❌ Aucun rôle n'a pu être créé.", ephemeral=True)
+
 
 
 
