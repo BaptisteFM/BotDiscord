@@ -1,29 +1,45 @@
+import os
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 from discord.ui import Modal, TextInput
 from discord import TextStyle
-import os
-from dotenv import load_dotenv
+
 import json
 import time
 import asyncio
 import textwrap
 import datetime
 from bson import ObjectId
-
-# ========================================
-# 🔌 Connexion à MongoDB Atlas
-# ========================================
 from pymongo import MongoClient
+from dotenv import load_dotenv
 
-# Charger les variables d'environnement
-load_dotenv()
+# ========================================
+# 🔐 Chargement sécurisé du fichier .env
+# ========================================
+if not load_dotenv():
+    print("❌ Le fichier .env n'a pas pu être chargé ou est introuvable.")
+
 TOKEN = os.getenv("DISCORD_TOKEN")
 MONGODB_URI = os.getenv("MONGODB_URI")
 
-# Connexion MongoDB
-mongo_client = MongoClient(MONGODB_URI)
+# Sécurité renforcée : vérifie que les variables sont bien chargées
+if not TOKEN:
+    raise ValueError("❌ DISCORD_TOKEN est introuvable. Vérifie ton .env et son chargement.")
+if not MONGODB_URI:
+    raise ValueError("❌ MONGODB_URI est introuvable. Vérifie ton .env et son chargement.")
+
+print("✅ Variables d'environnement chargées.")
+
+# ========================================
+# 📡 Connexion à MongoDB Atlas
+# ========================================
+try:
+    mongo_client = MongoClient(MONGODB_URI)
+    mongo_client.admin.command("ping")
+    print("✅ Connexion MongoDB Atlas réussie.")
+except Exception as e:
+    raise ConnectionError(f"❌ Échec connexion MongoDB : {e}")
 
 # Base et collections MongoDB
 mongo_db = mongo_client["discord_bot"]
@@ -32,7 +48,7 @@ programmed_messages_collection = mongo_db["programmed_messages"]
 defis_collection = mongo_db["defis"]
 
 # ========================================
-# ⚙️ Intents et Bot setup
+# ⚙️ Configuration des intents
 # ========================================
 intents = discord.Intents.default()
 intents.message_content = True
@@ -41,6 +57,9 @@ intents.guilds = True
 intents.reactions = True
 intents.voice_states = True
 
+# ========================================
+# 🤖 Classe principale du bot
+# ========================================
 class MyBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=intents)
@@ -61,54 +80,62 @@ class MyBot(commands.Bot):
         self.programmed_messages = {}
 
     async def setup_hook(self):
-    # ✅ Vérification MongoDB au lancement
         try:
             mongo_client.admin.command("ping")
-            print("✅ Connexion MongoDB confirmée.")
+            print("✅ MongoDB toujours accessible depuis setup_hook().")
         except Exception as e:
-            print(f"❌ Erreur MongoDB : {e}")
+            print(f"❌ Problème MongoDB dans setup_hook() : {e}")
 
-        # 🌐 Synchronisation des slash commands
         try:
             synced = await self.tree.sync(guild=None)
             print(f"🌐 {len(synced)} commandes slash synchronisées (globalement)")
         except Exception as e:
-            print(f"❌ Erreur synchronisation : {e}")
+            print(f"❌ Erreur de synchronisation des slash commands : {e}")
 
-
-# Initialisation du bot
+# ========================================
+# 🧠 Instanciation du bot
+# ========================================
 bot = MyBot()
 tree = bot.tree
 
 
 
-# =======================================
-# 🎭 /roledereaction — Ajouter un rôle à un message (ou en créer un via modal)
-# =======================================
+
+# ========================================
+# 🎭 /roledereaction — Ajoute une réaction à un message existant ou en crée un nouveau via un modal
+# ========================================
 
 class RoleReactionModal(discord.ui.Modal, title="✍️ Créer un message avec formatage"):
 
-    contenu = discord.ui.TextInput(
-        label="Texte du message",
-        style=discord.TextStyle.paragraph,
-        placeholder="Entre ton message ici (sauts de ligne autorisés)",
-        required=True,
-        max_length=2000
-    )
-
     def __init__(self, emoji, role, salon):
-        super().__init__(timeout=None)  # ✅ Désactive le timeout automatique
+        super().__init__(timeout=None)
         self.emoji = emoji
         self.role = role
         self.salon = salon
 
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            await interaction.response.defer(ephemeral=True)  # ✅ Préviens le timeout si traitement un peu long
+        self.contenu = TextInput(
+            label="Texte du message",
+            style=TextStyle.paragraph,
+            placeholder="Entre ton message ici (sauts de ligne autorisés)",
+            required=True,
+            max_length=2000,
+            custom_id="roledereaction_contenu"
+        )
+        self.add_item(self.contenu)
 
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        try:
             message_envoye = await self.salon.send(textwrap.dedent(self.contenu.value))
             await message_envoye.add_reaction(self.emoji)
-            bot.reaction_roles[message_envoye.id] = {self.emoji: self.role.id}
+
+            emoji_key = (
+                str(self.emoji) if not self.emoji.is_custom_emoji()
+                else f"<:{self.emoji.name}:{self.emoji.id}>"
+            )
+
+            bot.reaction_roles[message_envoye.id] = {emoji_key: self.role.id}
 
             await interaction.followup.send(
                 f"✅ Nouveau message envoyé dans {self.salon.mention}\n"
@@ -116,8 +143,9 @@ class RoleReactionModal(discord.ui.Modal, title="✍️ Créer un message avec f
                 f"- Rôle associé : **{self.role.name}**",
                 ephemeral=True
             )
+
         except Exception as e:
-            await interaction.followup.send(f"❌ Erreur : {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ Erreur lors de l'envoi du message : {e}", ephemeral=True)
 
 
 @bot.tree.command(name="roledereaction", description="Ajoute une réaction à un message existant ou en crée un nouveau via un modal")
@@ -139,20 +167,28 @@ async def roledereaction(
         if message_id:
             await interaction.response.defer(ephemeral=True)
 
-            msg_id_int = int(message_id)
-            channel = interaction.channel
-            msg = await channel.fetch_message(msg_id_int)
-            await msg.add_reaction(emoji)
+            try:
+                msg_id_int = int(message_id)
+                msg = await interaction.channel.fetch_message(msg_id_int)
+                await msg.add_reaction(emoji)
 
-            if msg_id_int in bot.reaction_roles:
-                bot.reaction_roles[msg_id_int][emoji] = role.id
-            else:
-                bot.reaction_roles[msg_id_int] = {emoji: role.id}
+                emoji_key = (
+                    str(emoji) if not discord.PartialEmoji.from_str(emoji).is_custom_emoji()
+                    else emoji
+                )
 
-            await interaction.followup.send(
-                f"✅ Réaction {emoji} ajoutée au message `{message_id}` pour le rôle **{role.name}**",
-                ephemeral=True
-            )
+                if msg_id_int in bot.reaction_roles:
+                    bot.reaction_roles[msg_id_int][emoji_key] = role.id
+                else:
+                    bot.reaction_roles[msg_id_int] = {emoji_key: role.id}
+
+                await interaction.followup.send(
+                    f"✅ Réaction {emoji} ajoutée au message `{message_id}` pour le rôle **{role.name}**",
+                    ephemeral=True
+                )
+
+            except Exception as e:
+                await interaction.followup.send(f"❌ Erreur lors de l'ajout de la réaction : {e}", ephemeral=True)
 
         else:
             if not salon:
@@ -162,19 +198,17 @@ async def roledereaction(
                 )
                 return
 
-            modal = RoleReactionModal(emoji, role, salon)
-            await interaction.response.send_modal(modal)
+            try:
+                modal = RoleReactionModal(emoji, role, salon)
+                await interaction.response.send_modal(modal)
+            except Exception as e:
+                await interaction.response.send_message(f"❌ Erreur lors de l’ouverture du modal : {e}", ephemeral=True)
 
     except Exception as e:
-        try:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(f"❌ Erreur : {str(e)}", ephemeral=True)
-            else:
-                await interaction.followup.send(f"❌ Erreur : {str(e)}", ephemeral=True)
-        except:
-            print(f"❌ Erreur fatale : {e}")
-
-
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"❌ Erreur inattendue : {str(e)}", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ Erreur fatale : {str(e)}", ephemeral=True)
 
 # ========================================
 # 🎭 Fonction : /ajout_reaction_id
@@ -610,52 +644,57 @@ async def ajouter_titre(interaction: discord.Interaction, xp: int, titre: str):
 
 
 # ========================================
-# ⏰ Système de messages programmés — MONGODB
+# ⏰ Système de messages programmés — MONGODB (VERSION BLINDÉE)
 # ========================================
 
+from discord.ext import tasks
 from discord import TextStyle, app_commands
 from discord.ui import Modal, TextInput
-from discord.ext import tasks
 import datetime, textwrap, time
+from bson import ObjectId
 
 # 🔁 Boucle de vérification
 @tasks.loop(seconds=30)
 async def check_programmed_messages():
     await bot.wait_until_ready()
-    now = datetime.datetime.now()
-    now_str = now.strftime("%d/%m/%Y %H:%M")
+    now = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
 
-    messages = programmed_messages_collection.find()
-    for msg in messages:
-        if msg["next"] == now_str:
-            try:
-                channel = bot.get_channel(int(msg["channel_id"]))
-                if channel:
-                    await channel.send(textwrap.dedent(msg["message"]))
-                    print(f"📤 Message programmé envoyé dans {channel} (ID Mongo: {msg['_id']})")
-            except Exception as e:
-                print(f"❌ Erreur lors de l'envoi du message [{msg['_id']}] : {e}")
-
-            if msg["type"] == "once":
-                programmed_messages_collection.delete_one({"_id": msg["_id"]})
-            else:
+    try:
+        messages = list(programmed_messages_collection.find())
+        for msg in messages:
+            if msg.get("next") == now:
                 try:
-                    current = datetime.datetime.strptime(msg["next"], "%d/%m/%Y %H:%M")
-                    if msg["type"] == "daily":
-                        current += datetime.timedelta(days=1)
-                    elif msg["type"] == "weekly":
-                        current += datetime.timedelta(weeks=1)
-                    new_date = current.strftime("%d/%m/%Y %H:%M")
-                    programmed_messages_collection.update_one(
-                        {"_id": msg["_id"]},
-                        {"$set": {"next": new_date}}
-                    )
+                    channel = bot.get_channel(int(msg["channel_id"]))
+                    if channel:
+                        await channel.send(textwrap.dedent(msg["message"]))
+                        print(f"📤 Message envoyé dans {channel.name} ({msg['_id']})")
                 except Exception as e:
-                    print(f"❌ Erreur recalcul date [{msg['_id']}] : {e}")
+                    print(f"❌ Erreur envoi message programmé [{msg['_id']}] : {e}")
+
+                if msg.get("type") == "once":
                     programmed_messages_collection.delete_one({"_id": msg["_id"]})
+                else:
+                    try:
+                        current = datetime.datetime.strptime(msg["next"], "%d/%m/%Y %H:%M")
+                        if msg["type"] == "daily":
+                            current += datetime.timedelta(days=1)
+                        elif msg["type"] == "weekly":
+                            current += datetime.timedelta(weeks=1)
+
+                        next_date = current.strftime("%d/%m/%Y %H:%M")
+                        programmed_messages_collection.update_one(
+                            {"_id": msg["_id"]},
+                            {"$set": {"next": next_date}}
+                        )
+                    except Exception as e:
+                        print(f"❌ Erreur recalcul date [{msg['_id']}] : {e}")
+                        programmed_messages_collection.delete_one({"_id": msg["_id"]})
+    except Exception as e:
+        print(f"❌ Erreur boucle messages programmés : {e}")
 
 # 📥 Modal de création
 class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
+
     def __init__(self, salon, type, date_heure):
         super().__init__(timeout=None)
         self.salon = salon
@@ -680,7 +719,7 @@ class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
                 "type": self.type.lower(),
                 "next": self.date_heure
             }
-            result = programmed_messages_collection.insert_one(doc)
+            programmed_messages_collection.insert_one(doc)
             await interaction.followup.send(
                 f"✅ Message planifié pour **{self.date_heure}** ({self.type}) dans {self.salon.mention}",
                 ephemeral=True
@@ -703,34 +742,42 @@ async def programmer_message(interaction: discord.Interaction, salon: discord.Te
         await interaction.response.send_message("❌ Format invalide. Utilise : JJ/MM/AAAA HH:MM", ephemeral=True)
         return
 
-    await interaction.response.send_modal(ProgrammerMessageModal(salon, type, date_heure))
+    try:
+        await interaction.response.send_modal(ProgrammerMessageModal(salon, type, date_heure))
+    except Exception as e:
+        await interaction.followup.send(f"❌ Erreur lors de l'ouverture du modal : {e}", ephemeral=True)
 
 # 🗑️ /supprimer_message
 @tree.command(name="supprimer_message", description="Supprime un message programmé")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(message_id="ID MongoDB du message à supprimer")
 async def supprimer_message(interaction: discord.Interaction, message_id: str):
-    from bson import ObjectId
-    result = programmed_messages_collection.delete_one({"_id": ObjectId(message_id)})
-    if result.deleted_count > 0:
-        await interaction.response.send_message("✅ Message supprimé.", ephemeral=True)
-    else:
-        await interaction.response.send_message("❌ ID non trouvé.", ephemeral=True)
+    try:
+        result = programmed_messages_collection.delete_one({"_id": ObjectId(message_id)})
+        if result.deleted_count > 0:
+            await interaction.response.send_message("✅ Message supprimé.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ ID non trouvé.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Erreur : {str(e)}", ephemeral=True)
 
 # 📋 /messages_programmes
 @tree.command(name="messages_programmes", description="Affiche les messages programmés")
 @app_commands.checks.has_permissions(administrator=True)
 async def messages_programmes(interaction: discord.Interaction):
-    docs = list(programmed_messages_collection.find())
-    if not docs:
-        await interaction.response.send_message("Aucun message programmé.", ephemeral=True)
-        return
+    try:
+        docs = list(programmed_messages_collection.find())
+        if not docs:
+            await interaction.response.send_message("Aucun message programmé.", ephemeral=True)
+            return
 
-    texte = "**🗓️ Messages programmés :**\n"
-    for doc in docs:
-        texte += f"🆔 `{doc['_id']}` — Salon : <#{doc['channel_id']}> — ⏰ {doc['next']} — 🔁 {doc['type']}\n"
+        texte = "**🗓️ Messages programmés :**\n"
+        for doc in docs:
+            texte += f"🆔 `{doc['_id']}` — Salon : <#{doc['channel_id']}> — ⏰ {doc['next']} — 🔁 {doc['type']}\n"
 
-    await interaction.response.send_message(texte.strip(), ephemeral=True)
+        await interaction.response.send_message(texte.strip(), ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Erreur : {str(e)}", ephemeral=True)
 
 # ✏️ /modifier_message_programme
 class ModifierMessageModal(Modal, title="✏️ Modifier un message programmé"):
@@ -748,35 +795,37 @@ class ModifierMessageModal(Modal, title="✏️ Modifier un message programmé")
         self.add_item(self.nouveau_contenu)
 
     async def on_submit(self, interaction: discord.Interaction):
-        from bson import ObjectId
         await interaction.response.defer(ephemeral=True)
-        result = programmed_messages_collection.update_one(
-            {"_id": ObjectId(self.message_id)},
-            {"$set": {"message": textwrap.dedent(self.nouveau_contenu.value)}}
-        )
-        if result.matched_count:
-            await interaction.followup.send("✅ Message modifié avec succès.", ephemeral=True)
-        else:
-            await interaction.followup.send("❌ ID introuvable.", ephemeral=True)
+        try:
+            result = programmed_messages_collection.update_one(
+                {"_id": ObjectId(self.message_id)},
+                {"$set": {"message": textwrap.dedent(self.nouveau_contenu.value)}}
+            )
+            if result.matched_count:
+                await interaction.followup.send("✅ Message modifié avec succès.", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ ID introuvable.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Erreur : {str(e)}", ephemeral=True)
 
 @tree.command(name="modifier_message_programme", description="Modifie un message programmé via un modal")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(message_id="ID MongoDB du message à modifier")
 async def modifier_message_programme(interaction: discord.Interaction, message_id: str):
-    await interaction.response.send_modal(ModifierMessageModal(message_id))
-
-
-
+    try:
+        await interaction.response.send_modal(ModifierMessageModal(message_id))
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Erreur ouverture modal : {str(e)}", ephemeral=True)
 
 
 
 # ========================================
-# 🔥 Modal de défi (MongoDB)
+# 🔥 Modal de défi (VERSION BLINDÉE)
 # ========================================
 class DefiModal(Modal, title="🔥 Défi de la semaine"):
 
     def __init__(self, salon, role, durée_heures):
-        super().__init__()
+        super().__init__(timeout=None)
         self.salon = salon
         self.role = role
         self.durée_heures = durée_heures
@@ -793,10 +842,14 @@ class DefiModal(Modal, title="🔥 Défi de la semaine"):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         try:
+            # 🔒 Envoi du message du défi
             msg = await self.salon.send(textwrap.dedent(self.message.value))
             await msg.add_reaction("✅")
 
+            # 🕒 Calcul de la fin
             end_timestamp = time.time() + self.durée_heures * 3600
+
+            # 💾 Insertion MongoDB
             defis_collection.insert_one({
                 "message_id": msg.id,
                 "channel_id": self.salon.id,
@@ -804,22 +857,24 @@ class DefiModal(Modal, title="🔥 Défi de la semaine"):
                 "end_timestamp": end_timestamp
             })
 
+            # 🧨 Lancement de la suppression automatique
             asyncio.create_task(remove_role_later(interaction.guild, msg.id, self.role))
 
             await interaction.followup.send(
-                f"✅ Défi posté dans {self.salon.mention} avec rôle **{self.role.name}** pendant **{self.durée_heures}h**",
+                f"✅ Défi lancé dans {self.salon.mention} avec le rôle **{self.role.name}** pour **{self.durée_heures}h**",
                 ephemeral=True
             )
         except Exception as e:
-            await interaction.followup.send(f"❌ Erreur : {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ Erreur lors de la création du défi : {e}", ephemeral=True)
 
 # ========================================
-# 🔄 Suppression automatique du rôle
+# 🔄 Suppression automatique du rôle (VERSION BLINDÉE)
 # ========================================
 async def remove_role_later(guild, message_id, role):
     try:
         data = defis_collection.find_one({"message_id": message_id})
         if not data:
+            print(f"⚠️ Données du défi introuvables pour le message {message_id}")
             return
 
         temps_restant = data["end_timestamp"] - time.time()
@@ -829,16 +884,17 @@ async def remove_role_later(guild, message_id, role):
             if role in member.roles:
                 try:
                     await member.remove_roles(role, reason="Fin du défi")
-                except:
-                    pass
+                except Exception as e:
+                    print(f"❌ Impossible de retirer le rôle à {member.display_name} : {e}")
 
         defis_collection.delete_one({"message_id": message_id})
+        print(f"✅ Rôle {role.name} retiré à tous et défi supprimé (ID message : {message_id})")
 
     except Exception as e:
-        print(f"❌ Erreur dans la suppression du rôle défi : {e}")
+        print(f"❌ Erreur dans remove_role_later : {e}")
 
 # ========================================
-# 📌 Commande /defi_semaine (MongoDB)
+# 📌 /defi_semaine — Lancer un défi (VERSION BLINDÉE)
 # ========================================
 @tree.command(name="defi_semaine", description="Lance un défi hebdomadaire avec rôle temporaire")
 @app_commands.checks.has_permissions(administrator=True)
@@ -848,37 +904,56 @@ async def remove_role_later(guild, message_id, role):
     durée_heures="Durée du défi en heures (ex: 168 pour 7 jours)"
 )
 async def defi_semaine(interaction: discord.Interaction, salon: discord.TextChannel, role: discord.Role, durée_heures: int):
-    await interaction.response.send_modal(DefiModal(salon, role, durée_heures))
+    try:
+        if durée_heures <= 0 or durée_heures > 10000:
+            await interaction.response.send_message("❌ Durée invalide. Choisis entre 1h et 10 000h.", ephemeral=True)
+            return
+
+        await interaction.response.send_modal(DefiModal(salon, role, durée_heures))
+
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Erreur lors de la commande : {e}", ephemeral=True)
 
 # ========================================
-# ✅ Gestion des réactions défi (MongoDB)
+# ✅ Réactions de participation au défi (VERSION BLINDÉE)
 # ========================================
 @bot.event
 async def on_raw_reaction_add(payload):
-    if str(payload.emoji) != "✅":
-        return
+    try:
+        if str(payload.emoji) != "✅":
+            return
 
-    data = defis_collection.find_one({"message_id": payload.message_id})
-    if data:
-        guild = bot.get_guild(payload.guild_id)
-        member = guild.get_member(payload.user_id)
-        role = guild.get_role(data["role_id"])
-        if role and member and not member.bot:
-            await member.add_roles(role, reason="Participation au défi")
+        data = defis_collection.find_one({"message_id": payload.message_id})
+        if data:
+            guild = bot.get_guild(payload.guild_id)
+            if not guild:
+                return
+            member = guild.get_member(payload.user_id)
+            if member and not member.bot:
+                role = guild.get_role(data["role_id"])
+                if role:
+                    await member.add_roles(role, reason="Participation au défi")
+    except Exception as e:
+        print(f"❌ Erreur ajout rôle défi : {e}")
 
 @bot.event
 async def on_raw_reaction_remove(payload):
-    if str(payload.emoji) != "✅":
-        return
+    try:
+        if str(payload.emoji) != "✅":
+            return
 
-    data = defis_collection.find_one({"message_id": payload.message_id})
-    if data:
-        guild = bot.get_guild(payload.guild_id)
-        member = guild.get_member(payload.user_id)
-        role = guild.get_role(data["role_id"])
-        if role and member and not member.bot:
-            await member.remove_roles(role, reason="Abandon du défi")
-
+        data = defis_collection.find_one({"message_id": payload.message_id})
+        if data:
+            guild = bot.get_guild(payload.guild_id)
+            if not guild:
+                return
+            member = guild.get_member(payload.user_id)
+            if member and not member.bot:
+                role = guild.get_role(data["role_id"])
+                if role:
+                    await member.remove_roles(role, reason="Abandon du défi")
+    except Exception as e:
+        print(f"❌ Erreur retrait rôle défi : {e}")
 
 # ========================================
 # 📩 /envoyer_message — Envoi via modal (admin, corrigé)
