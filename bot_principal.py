@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 import json
 import discord
@@ -94,33 +97,31 @@ xp_data = {}
 messages_programmes = {}
 defis_data = {}
 
-pomodoro_data = {}       # { user_id: { "total_focus": int, "session_count": int } }
-goals_data = {}          # { user_id: [ { "id": str, "texte": str, "status": str }, ... ] }
-weekly_plan_data = {}    # { user_id: [ "Priorité 1", "Priorité 2", ... ] }
-reminders_data = {}      # { reminder_id: { "user_id": str, "time": str, "message": str, "daily": bool } }
-quiz_data = {}           # { "questions": [ { "question": str, "choices": [str, ...], "answer": int } ] }
-quiz_results_data = {}   # { user_id: [ { "score": int, "total": int, "date": float } ] }
-citations_data = {}      # { "citations": [ "Citation 1", "Citation 2", ... ] }
-links_data = {}          # { "links": [ { "lien": str, "description": str, "public": bool } ] }
+pomodoro_data = {}
+goals_data = {}
+weekly_plan_data = {}
+reminders_data = {}
+quiz_data = {}
+quiz_results_data = {}
+citations_data = {}
+links_data = {}
 
-# Données pour les nouvelles fonctionnalités
-discipline_personnelle_rules = {}  # { user_id: [rule, ...] }
-season_data = {}                   # Détails de la saison actuelle
-double_profile = {}                # { user_id: {"current": 1 or 2, "profile1": {...}, "profile2": {...}} }
-isolation_status = {}              # { user_id: {"active": bool, "end_time": timestamp, "lost_roles": [role_ids]} }
-journal_de_guerre = []             # Liste de logs publics
-tribunal_confessions = []           # Liste de confessions
-quêtes_identite = {}               # { user_id: response }
+discipline_personnelle_rules = {}
+season_data = {}
+double_profile = {}
+isolation_status = {}
+journal_de_guerre = []
+tribunal_confessions = []
+quêtes_identite = {}
 univers_paralleles = {"active": False, "theme": None}
-hall_of_mastery = []               # Liste d'utilisateurs (simulée)
-livres_savoir = []                 # Liste de livres partagés
-protocoles = {}                    # { nom: description }
-promesses = []                     # Liste des promesses publiques
-rpg_profiles = {}                  # { user_id: {"volonte": int, "tentation": int, "niveau": int} }
+hall_of_mastery = []
+livres_savoir = []
+protocoles = {}
+promesses = []
+rpg_profiles = {}
 eclipse_mentale = {"active": False, "end_time": None}
-legacy_messages = []               # Liste des messages d’héritage
+legacy_messages = []
 
-# -------------------- Configuration récap hebdomadaire --------------------
 weekly_recap_config = {
     "channel_id": None,
     "time": "18:00",
@@ -136,7 +137,6 @@ intents.guilds = True
 intents.reactions = True
 intents.voice_states = True
 
-# Récupération du token et de l'application_id depuis les variables d'environnement
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 APPLICATION_ID = int(os.getenv("APPLICATION_ID")) if os.getenv("APPLICATION_ID") else None
 
@@ -211,8 +211,8 @@ class MyBot(commands.Bot):
             "visionnaire": None,
             "legacy": None
         }
-        self.mentor_targets = []  # Liste de dictionnaires : {'type': 'role'/'member'/'channel', 'id': <id>}
-        
+        self.mentor_targets = []  # [{'type': 'role'/'member'/'channel', 'id': <id>}]
+
     async def setup_hook(self):
         try:
             synced = await self.tree.sync()
@@ -262,7 +262,6 @@ class ConfigCog(commands.Cog):
     @app_commands.command(name="set_mentors", description="Définir les mentors pour les alertes (admin). Spécifiez une liste de mentions séparées par un espace.")
     @app_commands.checks.has_permissions(administrator=True)
     async def set_mentors(self, interaction: discord.Interaction, mentors: str):
-        # Exemple : "@MentorRole @Membre1 <#123456789012345678>"
         mentor_list = []
         role_mentions = re.findall(r"<@&(\d+)>", mentors)
         member_mentions = re.findall(r"<@!?(\d+)>", mentors)
@@ -281,7 +280,6 @@ class ConfigCog(commands.Cog):
     @app_commands.command(name="set_xp_config", description="Configurer le système XP (admin)")
     @app_commands.checks.has_permissions(administrator=True)
     async def set_xp_config(self, interaction: discord.Interaction, config: str):
-        # Exemple : {"xp_per_message": 15, "announcement_channel": "123456789012345678"}
         try:
             new_config = json.loads(config)
             self.bot.xp_config.update(new_config)
@@ -300,10 +298,6 @@ active_pomodoro_sessions = {}
 class PomodoroCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-
-    async def cog_load(self):
-        # Si vous avez besoin de lancer une tâche quand le cog est chargé, faites-le ici.
-        pass
 
     @safe_command
     async def pomodoro_cycle(self, user: discord.Member, cmd_channel: discord.TextChannel, focus_duration: int, short_break: int, long_break: int):
@@ -471,6 +465,7 @@ class WeeklyPlanModal(Modal, title="Planifiez votre semaine"):
             max_length=500
         )
         self.add_item(self.priorites)
+
     async def on_submit(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         plan = [p.strip() for p in self.priorites.value.split(",") if p.strip()]
@@ -484,6 +479,7 @@ class WeeklyPlanModal(Modal, title="Planifiez votre semaine"):
 class WeeklyPlanCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
     @safe_command
     @app_commands.command(name="planifier_semaine", description="Planifier sa semaine")
     async def planifier_semaine(self, interaction: discord.Interaction):
@@ -491,6 +487,7 @@ class WeeklyPlanCog(commands.Cog):
             await interaction.response.send_message("❌ Utilisez le canal Planning.", ephemeral=True)
             return
         await interaction.response.send_modal(WeeklyPlanModal())
+
     @safe_command
     @app_commands.command(name="ma_semaine", description="Afficher son planning")
     async def ma_semaine(self, interaction: discord.Interaction):
@@ -512,6 +509,7 @@ class RemindersCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.check_task = asyncio.create_task(self.check_reminders())
+
     async def check_reminders(self):
         await self.bot.wait_until_ready()
         while not self.bot.is_closed():
@@ -533,6 +531,7 @@ class RemindersCog(commands.Cog):
             if to_remove:
                 await sauvegarder_json_async(REMINDERS_FILE, reminders_data)
             await asyncio.sleep(60)
+
     @safe_command
     @app_commands.command(name="ajouter_rappel", description="Ajouter un rappel personnel")
     async def ajouter_rappel(self, interaction: discord.Interaction, time_str: str, message: str, daily: bool = False):
@@ -548,6 +547,7 @@ class RemindersCog(commands.Cog):
         reminders_data[rid] = {"user_id": str(interaction.user.id), "time": time_str, "message": message, "daily": daily}
         await sauvegarder_json_async(REMINDERS_FILE, reminders_data)
         await interaction.response.send_message("✅ Rappel ajouté.", ephemeral=True)
+
     @safe_command
     @app_commands.command(name="mes_rappels", description="Afficher ses rappels")
     async def mes_rappels(self, interaction: discord.Interaction):
@@ -563,6 +563,7 @@ class RemindersCog(commands.Cog):
             await interaction.response.send_message("🔔 Vos rappels :\n" + "\n".join(lines), ephemeral=True)
         else:
             await interaction.response.send_message("Aucun rappel.", ephemeral=True)
+
     @safe_command
     @app_commands.command(name="supprimer_rappel", description="Supprimer un rappel")
     async def supprimer_rappel(self, interaction: discord.Interaction, rid: str):
@@ -593,6 +594,7 @@ class QuizCog(commands.Cog):
             await interaction.response.send_message("✅ Quiz mis à jour.", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
+
     @safe_command
     @app_commands.command(name="lancer_quizz", description="Lancer le quiz")
     async def lancer_quizz(self, interaction: discord.Interaction):
@@ -663,6 +665,7 @@ class WeeklySummaryCog(commands.Cog):
         self.bot = bot
         self.sent_this_week = False
         self.task = asyncio.create_task(self.weekly_summary_task())
+
     async def weekly_summary_task(self):
         await self.bot.wait_until_ready()
         while not self.bot.is_closed():
@@ -703,6 +706,7 @@ Citation de la semaine : {citation if citation else 'Aucune'}"""
             except Exception as e:
                 logging.error(f"Erreur weekly_summary_task: {e}")
             await asyncio.sleep(60)
+
     @safe_command
     @app_commands.command(name="set_recap_config", description="Configurer le récap (admin)")
     @app_commands.checks.has_permissions(administrator=True)
@@ -725,6 +729,7 @@ class AideModal(Modal, title="J'ai besoin d'aide"):
         self.description = TextInput(label="Description", style=TextStyle.paragraph, placeholder="Décrivez votre besoin", required=True, max_length=500)
         self.add_item(self.domaine)
         self.add_item(self.description)
+
     async def on_submit(self, interaction: discord.Interaction):
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -738,6 +743,7 @@ class AideModal(Modal, title="J'ai besoin d'aide"):
 class AideCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
     @safe_command
     @app_commands.command(name="qui_a_besoin", description="Déclarez un besoin d'aide")
     async def qui_a_besoin(self, interaction: discord.Interaction):
@@ -747,6 +753,7 @@ class AideCog(commands.Cog):
         view = View(timeout=60)
         btn_besoin = Button(label="J’ai besoin d’aide", style=discord.ButtonStyle.danger)
         btn_aider = Button(label="Je peux aider", style=discord.ButtonStyle.success)
+
         async def besoin_callback(inter: discord.Interaction):
             overwrites = {
                 interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -756,13 +763,16 @@ class AideCog(commands.Cog):
             text_ch = await interaction.guild.create_text_channel(name="aide-text", category=category, overwrites=overwrites)
             voice_ch = await interaction.guild.create_voice_channel(name="aide-voice", category=category, overwrites=overwrites)
             await inter.response.send_message(f"✅ Canal créé: {text_ch.mention}", ephemeral=True)
+
         async def aider_callback(inter: discord.Interaction):
             await inter.response.send_message("✅ Vous serez notifié en cas de besoin.", ephemeral=True)
+
         btn_besoin.callback = besoin_callback
         btn_aider.callback = aider_callback
         view.add_item(btn_besoin)
         view.add_item(btn_aider)
         await interaction.response.send_message("🔔 Choisissez une option :", view=view, ephemeral=True)
+
     @safe_command
     @app_commands.command(name="j_ai_besoin_d_aide", description="Exprimez précisément votre besoin d'aide")
     async def j_ai_besoin_d_aide(self, interaction: discord.Interaction):
@@ -803,6 +813,7 @@ async def setup_citations(bot: commands.Bot):
 class EmergencyAlertCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
     @safe_command
     @app_commands.command(name="besoin_d_aide", description="Envoyer une alerte aux mentors")
     async def besoin_d_aide(self, interaction: discord.Interaction, message: str):
@@ -978,7 +989,7 @@ async def setup_sleep_mode(bot: commands.Bot):
 class RecherchesPersoCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.active_recherches = {}  # { user_id: { "topic": str, "next_dm_time": float } }
+        self.active_recherches = {}
         asyncio.create_task(self.dm_recherches_loop())
     async def dm_recherches_loop(self):
         await self.bot.wait_until_ready()
@@ -1869,7 +1880,6 @@ async def main():
         logging.error(f"❌ Erreur lancement bot: {e}")
 
 async def setup_reaction_roles(bot: commands.Bot):
-    # Exemple minimal de réaction role ; à compléter si nécessaire
     class DummyReactionRoleCog(commands.Cog):
         def __init__(self, bot: commands.Bot):
             self.bot = bot
@@ -1904,157 +1914,5 @@ async def setup_reaction_roles(bot: commands.Bot):
                         except Exception as e:
                             logging.error(e)
     await bot.add_cog(DummyReactionRoleCog(bot))
-
-async def setup_focus_group(bot: commands.Bot):
-    await bot.add_cog(FocusGroupCog(bot))
-
-async def setup_weekly_summary(bot: commands.Bot):
-    await bot.add_cog(WeeklySummaryCog(bot))
-
-async def setup_aide(bot: commands.Bot):
-    await bot.add_cog(AideCog(bot))
-
-async def setup_recherches(bot: commands.Bot):
-    await bot.add_cog(RecherchesPersoCog(bot))
-
-async def setup_activity_drop(bot: commands.Bot):
-    await bot.add_cog(ActivityDropCog(bot))
-
-async def setup_smart_reactions(bot: commands.Bot):
-    await bot.add_cog(SmartReactionsCog(bot))
-
-async def setup_quetes(bot: commands.Bot):
-    await bot.add_cog(QuetesCog(bot))
-
-async def setup_discipline_personnelle(bot: commands.Bot):
-    await bot.add_cog(DisciplinePersonnelCog(bot))
-
-async def setup_commandant(bot: commands.Bot):
-    await bot.add_cog(CommandantCog(bot))
-
-async def setup_double_compte(bot: commands.Bot):
-    await bot.add_cog(DoubleCompteCog(bot))
-
-async def setup_tempete(bot: commands.Bot):
-    await bot.add_cog(TempeteCog(bot))
-
-async def setup_version_parallele(bot: commands.Bot):
-    await bot.add_cog(VersionParalleleCog(bot))
-
-async def setup_journal_guerre(bot: commands.Bot):
-    await bot.add_cog(JournalGuerreCog(bot))
-
-async def setup_tribunal(bot: commands.Bot):
-    await bot.add_cog(TribunalCog(bot))
-
-async def setup_univers_paralleles(bot: commands.Bot):
-    await bot.add_cog(UniversParallelesCog(bot))
-
-async def setup_hall_of_mastery(bot: commands.Bot):
-    await bot.add_cog(HallOfMasteryCog(bot))
-
-async def setup_chrono_discipline(bot: commands.Bot):
-    await bot.add_cog(ChronoDisciplineCog(bot))
-
-async def setup_jour_zero(bot: commands.Bot):
-    await bot.add_cog(JourZeroCog(bot))
-
-async def setup_forge_protocoles(bot: commands.Bot):
-    await bot.add_cog(ForgeProtocolesCog(bot))
-
-async def setup_mur_promesses(bot: commands.Bot):
-    await bot.add_cog(MurPromessesCog(bot))
-
-async def setup_rpg_discipline(bot: commands.Bot):
-    await bot.add_cog(RPGDisciplineCog(bot))
-
-async def setup_eclipse_mentale(bot: commands.Bot):
-    await bot.add_cog(EclipseMentaleCog(bot))
-
-async def setup_miroir_futur(bot: commands.Bot):
-    await bot.add_cog(MiroirFuturCog(bot))
-
-async def setup_rituel_vocal(bot: commands.Bot):
-    await bot.add_cog(RituelVocalCog(bot))
-
-# -------------------- MAIN --------------------
-async def main():
-    global xp_data, messages_programmes, defis_data, pomodoro_data, goals_data, weekly_plan_data, reminders_data, quiz_data
-    try:
-        xp_data = await charger_json_async(XP_FILE)
-        messages_programmes = await charger_json_async(MSG_FILE)
-        defis_data = await charger_json_async(DEFIS_FILE)
-        pomodoro_data = await charger_json_async(POMODORO_FILE)
-        goals_data = await charger_json_async(GOALS_FILE)
-        weekly_plan_data = await charger_json_async(WEEKLY_PLAN_FILE)
-        reminders_data = await charger_json_async(REMINDERS_FILE)
-        quiz_data = await charger_json_async(QUIZ_FILE)
-    except Exception as e:
-        logging.error(f"❌ Erreur chargement données: {e}")
-
-    # Chargement de tous les cogs
-    await setup_reaction_roles(bot)
-    await setup_pomodoro(bot)
-    await setup_goals(bot)
-    await setup_weekly_plan(bot)
-    await setup_reminders(bot)
-    await setup_quiz(bot)
-    await setup_focus_group(bot)
-    await setup_weekly_summary(bot)
-    await setup_aide(bot)
-    await setup_citations(bot)
-    await setup_emergency(bot)
-    await setup_channel_lock(bot)
-    await setup_focus_protect(bot)
-    await setup_sleep_mode(bot)
-    await setup_recherches(bot)
-    await setup_activity_drop(bot)
-    await setup_bibliotheque(bot)
-    await setup_smart_reactions(bot)
-    await setup_quetes(bot)
-    await setup_discipline_personnelle(bot)
-    await setup_saison(bot)
-    await setup_commandant(bot)
-    await setup_double_compte(bot)
-    await setup_isolation(bot)
-    await setup_tempete(bot)
-    await setup_version_parallele(bot)
-    await setup_journal_guerre(bot)
-    await setup_tribunal(bot)
-    await setup_quetes_identite(bot)
-    await setup_univers_paralleles(bot)
-    await setup_hall_of_mastery(bot)
-    await setup_chrono_discipline(bot)
-    await setup_livres_savoir(bot)
-    await setup_jour_zero(bot)
-    await setup_forge_protocoles(bot)
-    await setup_mur_promesses(bot)
-    await setup_rpg_discipline(bot)
-    await setup_eclipse_mentale(bot)
-    await setup_miroir_futur(bot)
-    await setup_monnaie_mentale(bot)
-    await setup_rituel_vocal(bot)
-    await setup_chasseur_distraction(bot)
-    await setup_influence_mentale(bot)
-    await setup_base_secrete(bot)
-    await setup_eveil_progressif(bot)
-    await setup_rituel_silence(bot)
-    await setup_commandements(bot)
-    await setup_archives_mentales(bot)
-    await setup_pacte_sang(bot)
-    await setup_duel_mental(bot)
-    await setup_codex(bot)
-    await setup_roles_totem(bot)
-    await setup_visionnaire(bot)
-    await setup_legacy(bot)
-    await setup_config(bot)
-
-    # Synchronisation finale de toutes les commandes slash
-    await bot.tree.sync()
-
-    try:
-        await bot.start(DISCORD_TOKEN)
-    except Exception as e:
-        logging.error(f"❌ Erreur lancement bot: {e}")
 
 asyncio.run(main())
