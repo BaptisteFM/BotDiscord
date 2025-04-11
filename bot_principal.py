@@ -100,8 +100,7 @@ intents.voice_states = True
 class MyBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="!", intents=intents)
-
-        # Rôles par réaction (message_id: {emoji: role_id})
+        # Rôles par réaction (message_id: {emoji_key: role_id})
         self.reaction_roles = {}
         # Temps d’entrée en vocal (user_id: timestamp)
         self.vocal_start_times = {}
@@ -124,16 +123,16 @@ class MyBot(commands.Bot):
             "channel_id": None,
             "role_id": None
         }
-        # Données d’objectifs persos (chargées depuis JSON)
-        self.objectifs_data = {}  # user_id: liste d’objectifs
-        # Configuration pour journal de session focus
+        # Données d’objectifs persos
+        self.objectifs_data = {}
+        # Salon pour journal de focus
         self.journal_focus_channel = None
-        # ➕ Nouveau : salon pour stats hebdo
+        # Salon pour stats hebdo
         self.weekly_stats_channel = None
         # Mémoire temporaire des stats hebdomadaires
         self.weekly_stats = {}
-        # 📛 Destinataires des messages de détresse
-        self.sos_receivers = []  # Liste de rôles ou IDs utilisateurs
+        # Destinataires des messages de détresse (roles ou IDs)
+        self.sos_receivers = []
         self.missions_secretes = {}
         self.categories_crees = {}
         self.evenement_config = {}
@@ -155,7 +154,6 @@ class MyBot(commands.Bot):
             # Synchronisation des commandes slash
             synced = await self.tree.sync()
             print(f"🌐 {len(synced)} commandes slash synchronisées")
-
             # Démarrage des tâches planifiées
             if not check_programmed_messages.is_running():
                 check_programmed_messages.start()
@@ -255,19 +253,16 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # 🔁 Statistiques hebdomadaires — messages
     uid = str(message.author.id)
     if uid not in bot.weekly_stats:
         bot.weekly_stats[uid] = {"messages": 0, "vocal": 0}
     bot.weekly_stats[uid]["messages"] += 1
 
-    # 🎯 Calcul XP message
     xp_val = bot.xp_config["xp_per_message"]
     mult = bot.xp_config["multipliers"].get(str(message.channel.id), 1.0)
     total_xp = int(xp_val * mult)
     current_xp = await add_xp(message.author.id, total_xp)
 
-    # 🎖️ Vérification des rôles liés à l'XP
     for seuil, role_id in bot.xp_config["level_roles"].items():
         if current_xp >= int(seuil):
             role = message.guild.get_role(int(role_id))
@@ -630,6 +625,7 @@ class RoleReactionModal(Modal, title="✍️ Message avec réaction"):
     def __init__(self, emoji: str, role: discord.Role, salon: discord.TextChannel):
         super().__init__(timeout=None)
         try:
+            # Transformation de l'emoji fourni en une clé normalisée
             self.emoji = PartialEmoji.from_str(emoji)
             self.emoji_key = get_emoji_key(self.emoji)
         except Exception as e:
@@ -649,11 +645,10 @@ class RoleReactionModal(Modal, title="✍️ Message avec réaction"):
         try:
             message_envoye = await self.salon.send(textwrap.dedent(self.contenu.value))
             await message_envoye.add_reaction(self.emoji)
-            # IMPORTANT : on utilise ici str(message_envoye.id) pour la cohérence avec la persistance
+            # Enregistrer avec la clé normalisée
             bot.reaction_roles[str(message_envoye.id)] = {self.emoji_key: self.role.id}
-            await interaction.followup.send(f"✅ Message envoyé dans {self.salon.mention}\n- Emoji: {self.emoji}\n- Rôle: **{self.role.name}**", ephemeral=True)
-            # Sauvegarder la configuration des réactions
             await sauvegarder_json_async(REACTION_ROLE_FILE, bot.reaction_roles)
+            await interaction.followup.send(f"✅ Message envoyé dans {self.salon.mention}\n- Emoji: {self.emoji}\n- Rôle: **{self.role.name}**", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ Erreur lors de l'envoi du message: {e}", ephemeral=True)
 
@@ -665,6 +660,7 @@ async def ajout_reaction_id(interaction: discord.Interaction, role: discord.Role
         msg_id = int(message_id)
         msg = await interaction.channel.fetch_message(msg_id)
         await msg.add_reaction(emoji)
+        # Convertir l'emoji via la fonction pour obtenir la clé
         emoji_key = get_emoji_key(emoji)
         msg_id_str = str(msg_id)
         bot.reaction_roles.setdefault(msg_id_str, {})[emoji_key] = role.id
@@ -675,7 +671,6 @@ async def ajout_reaction_id(interaction: discord.Interaction, role: discord.Role
 
 @bot.event
 async def on_raw_reaction_add(payload):
-    # Ignore les réactions du bot lui-même
     if payload.user_id == bot.user.id:
         return
     try:
@@ -688,7 +683,6 @@ async def on_raw_reaction_add(payload):
             print(f"❌ Membre introuvable pour {payload.user_id}")
             return
         emoji_key = get_emoji_key(payload.emoji)
-        # Utilisation de str(payload.message_id) pour récupérer les données sauvegardées
         data = bot.reaction_roles.get(str(payload.message_id))
         if not data:
             print(f"❌ Aucune donnée trouvée pour le message {payload.message_id}")
@@ -1427,11 +1421,7 @@ async def stats_hebdo(interaction: discord.Interaction):
     mentions_roles="Mentionne les rôles (ex: @Aide @Soigneur)",
     mentions_utilisateurs="Mentionne les utilisateurs (ex: @Marie @Lucas)"
 )
-async def set_destinataires_sos(
-    interaction: discord.Interaction,
-    mentions_roles: str,
-    mentions_utilisateurs: str
-):
+async def set_destinataires_sos(interaction: discord.Interaction, mentions_roles: str, mentions_utilisateurs: str):
     bot.sos_receivers = []
     for role in interaction.guild.roles:
         if role.mention in mentions_roles:
@@ -1715,8 +1705,9 @@ async def reaction_role_avec_message(interaction: discord.Interaction, salon: di
                             else:
                                 await interaction_modal.followup.send(f"❌ Rôle introuvable : `{role_str}`", ephemeral=True)
                                 return
-                    # On enregistre en utilisant str(message_envoye.id) pour cohérence.
-                    bot.reaction_roles[str(message_envoye.id)] = dict(zip(emojis, role_ids))
+                    # Transformer chaque emoji avec get_emoji_key pour normaliser la clé.
+                    mapping = { get_emoji_key(e): r_id for e, r_id in zip(emojis, role_ids) }
+                    bot.reaction_roles[str(message_envoye.id)] = mapping
                     await sauvegarder_json_async(REACTION_ROLE_FILE, bot.reaction_roles)
                     await interaction_modal.followup.send("✅ Message envoyé avec succès et réactions enregistrées !", ephemeral=True)
                 except Exception as e:
