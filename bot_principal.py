@@ -1536,15 +1536,22 @@ async def stats_hebdo(interaction: discord.Interaction):
 
 @tree.command(name="set_destinataires_sos", description="Définit les destinataires des messages de détresse (admin)")
 @app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(roles="Rôles à alerter", utilisateurs="Utilisateurs à alerter")
-async def set_destinataires_sos(interaction: discord.Interaction, roles: Optional[List[discord.Role]] = None, utilisateurs: Optional[List[discord.User]] = None):
+@app_commands.describe(mentions_roles="Mentionne les rôles (ex: @Aider @Soigneur)", utilisateurs="Utilisateurs à alerter")
+async def set_destinataires_sos(interaction: discord.Interaction, mentions_roles: str, utilisateurs: Optional[List[discord.User]] = None):
     bot.sos_receivers = []
-    if roles:
-        bot.sos_receivers.extend([r.id for r in roles])
+
+    # Extraire les rôles mentionnés depuis le texte
+    for role in interaction.guild.roles:
+        if role.mention in mentions_roles:
+            bot.sos_receivers.append(role.id)
+
+    # Ajouter les utilisateurs si fournis
     if utilisateurs:
         bot.sos_receivers.extend([u.id for u in utilisateurs])
+
     await sauvegarder_json_async(SOS_CONFIG_FILE, {"receivers": bot.sos_receivers})
     await interaction.response.send_message("✅ Destinataires mis à jour pour les messages SOS.", ephemeral=True)
+
 @tree.command(name="sos", description="Lance une alerte en cas de burn-out ou besoin d’aide")
 async def sos(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
