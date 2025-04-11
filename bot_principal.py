@@ -1879,7 +1879,13 @@ class MultiReactionRoleModal(Modal, title="🔧 Message à rôles multiples"):
                 emoji_str, role_str = [s.strip() for s in ligne.split("=", 1)]
 
                 # 🔍 Trouver le rôle par mention
-                role = discord.utils.get(interaction.guild.roles, mention=role_str)
+                # 🔍 Recherche intelligente du rôle
+                role = (
+                    discord.utils.get(interaction.guild.roles, mention=role_str) or
+                    discord.utils.get(interaction.guild.roles, name=role_str) or
+                    discord.utils.get(interaction.guild.roles, name=role_str.strip("@")) or
+                    discord.utils.find(lambda r: r.name.lower() == role_str.lower().strip("@"), interaction.guild.roles)
+                )
                 if not role:
                     erreurs.append(f"Rôle introuvable : {role_str}")
                     continue
