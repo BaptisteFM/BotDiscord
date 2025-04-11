@@ -1831,27 +1831,6 @@ class HelpButtons(View):
 
 
 
-# ========================================
-# 📊 Commande utilisateur : /stats_hebdo
-# ========================================
-@tree.command(name="stats_hebdo", description="Affiche tes statistiques de la semaine")
-async def stats_hebdo(interaction: discord.Interaction):
-    try:
-        uid = str(interaction.user.id)
-        stats = bot.weekly_stats.get(uid, {"messages": 0, "vocal": 0})
-
-        nb_messages = stats.get("messages", 0)
-        minutes_vocal = round(stats.get("vocal", 0) / 60)
-
-        texte = textwrap.dedent(f"""
-        📊 **Stats de la semaine — {interaction.user.mention}**
-        ✉️ Messages envoyés : **{nb_messages}**
-        🎙️ Minutes en vocal : **{minutes_vocal}**
-        """)
-        await interaction.response.send_message(texte.strip(), ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
-
 
 
 
