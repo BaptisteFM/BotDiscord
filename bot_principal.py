@@ -1849,12 +1849,10 @@ class HelpButtons(View):
 @app_commands.checks.has_permissions(administrator=True)
 async def reaction_role_avec_message(interaction: discord.Interaction, salon: discord.TextChannel, emojis: str, roles: str):
     try:
-        # Vérifie que la commande est utilisée dans un serveur
         if not interaction.guild:
             await interaction.response.send_message("Cette commande ne peut être utilisée que dans un serveur.", ephemeral=True)
             return
 
-        # Vérifie que le nombre d'emojis et de rôles correspond
         emojis_liste = [e.strip() for e in emojis.split(",")]
         roles_liste = [r.strip() for r in roles.split(",")]
 
@@ -1862,7 +1860,6 @@ async def reaction_role_avec_message(interaction: discord.Interaction, salon: di
             await interaction.response.send_message("Le nombre d'emojis et de rôles doit être le même.", ephemeral=True)
             return
 
-        # Stocke les infos temporairement dans l'interaction pour les récupérer dans le modal
         interaction.client.temp_reaction_data = {
             "channel": salon,
             "emojis": emojis_liste,
@@ -1870,15 +1867,21 @@ async def reaction_role_avec_message(interaction: discord.Interaction, salon: di
             "user_id": interaction.user.id
         }
 
-        # Affiche le modal pour entrer le texte du message
         class ModalReactionRole(discord.ui.Modal, title="Texte du message à envoyer"):
-            message = discord.ui.TextInput(label="Contenu du message", style=discord.TextStyle.paragraph, required=True)
+            message = discord.ui.TextInput(
+                label="Contenu du message", 
+                style=discord.TextStyle.paragraph, 
+                required=True,
+                max_length=4000
+            )
 
             async def on_submit(self, interaction_modal: discord.Interaction):
                 try:
+                    await interaction_modal.response.defer(thinking=False)
+
                     data = interaction.client.temp_reaction_data
                     if interaction_modal.user.id != data["user_id"]:
-                        await interaction_modal.response.send_message("Tu n'es pas autorisé à envoyer ce message.", ephemeral=True)
+                        await interaction_modal.followup.send("Tu n'es pas autorisé à envoyer ce message.", ephemeral=True)
                         return
 
                     channel = data["channel"]
@@ -1886,33 +1889,28 @@ async def reaction_role_avec_message(interaction: discord.Interaction, salon: di
                     roles = data["roles"]
                     message_texte = self.message.value
 
-                    # Envoie le message dans le salon spécifié
                     message_envoye = await channel.send(message_texte)
 
-                    # Ajoute les réactions
                     for emoji in emojis:
                         await message_envoye.add_reaction(emoji)
 
-                    # Stocke les associations emoji <-> rôle ID
                     bot: commands.Bot = interaction.client
                     if not hasattr(bot, "reaction_roles"):
                         bot.reaction_roles = {}
-
-                    # Transformation des mentions en ID
                     role_ids = [int(r.strip().replace("<@&", "").replace(">", "")) for r in roles]
                     bot.reaction_roles[message_envoye.id] = dict(zip(emojis, role_ids))
 
-                    await interaction_modal.response.send_message("Message envoyé avec succès !", ephemeral=True)
+                    await interaction_modal.followup.send("✅ Message envoyé avec succès !", ephemeral=True)
 
                 except Exception as e:
-                    if not interaction_modal.response.is_done():
-                        await interaction_modal.response.send_message(f"Erreur dans le modal : {e}", ephemeral=True)
+                    await interaction_modal.followup.send(f"❌ Erreur dans le modal : {e}", ephemeral=True)
 
         await interaction.response.send_modal(ModalReactionRole())
 
     except Exception as e:
         if not interaction.response.is_done():
-            await interaction.response.send_message(f"Erreur : {e}", ephemeral=True)
+            await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
+
 
 
 
