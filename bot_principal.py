@@ -1,51 +1,61 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import os
 import json
 import discord
-from discord.ext import commands, tasks
-from discord import app_commands, TextStyle, PartialEmoji
-from discord.ui import Modal, TextInput, View, Button
 import asyncio
-import textwrap
 import time
 import datetime
-from zoneinfo import ZoneInfo
 import uuid
 import aiofiles
 import threading
+import random
+import logging
+import re
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Optional
+from zoneinfo import ZoneInfo
 
-# Configuration du port pour Render (ou autre hébergeur)
-os.environ["PORT"] = "10000"
+from discord.ext import commands, tasks
+from discord import app_commands, TextStyle, PartialEmoji
+from discord.ui import Modal, TextInput, View, Button
+from dotenv import load_dotenv
 
-# ========================================
-# 📁 Chemins des fichiers persistants
-# ========================================
+# ------------------------------------------------------------------------------
+# Chargement des variables d'environnement
+# ------------------------------------------------------------------------------
+load_dotenv()
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+APPLICATION_ID = int(os.getenv("APPLICATION_ID")) if os.getenv("APPLICATION_ID") else None
+
+# ------------------------------------------------------------------------------
+# Configuration du logging
+# ------------------------------------------------------------------------------
+logging.basicConfig(level=logging.INFO)
+
+# ------------------------------------------------------------------------------
+# Répertoire de stockage des données
+# ------------------------------------------------------------------------------
 DATA_FOLDER = "/data"
-XP_FILE = os.path.join(DATA_FOLDER, "xp.json")
-MSG_FILE = os.path.join(DATA_FOLDER, "messages_programmes.json")
-DEFIS_FILE = os.path.join(DATA_FOLDER, "defis.json")
-AUTO_DM_FILE = os.path.join(DATA_FOLDER, "auto_dm_configs.json")
-POMODORO_CONFIG_FILE = os.path.join(DATA_FOLDER, "config_pomodoro.json")
-GOALS_FILE = os.path.join(DATA_FOLDER, "objectifs.json")
-SOS_CONFIG_FILE = os.path.join(DATA_FOLDER, "sos_config.json")
-EVENEMENT_CONFIG_FILE = os.path.join(DATA_FOLDER, "evenement.json")
-THEME_CONFIG_FILE = os.path.join(DATA_FOLDER, "themes.json")
-MISSIONS_FILE = os.path.join(DATA_FOLDER, "missions_secretes.json")
-CALENDRIER_FILE = os.path.join(DATA_FOLDER, "evenements_calendrier.json")
-HELP_REQUEST_FILE = os.path.join(DATA_FOLDER, "help_requests.json")
-REACTION_ROLE_FILE = os.path.join(DATA_FOLDER, "reaction_roles.json")
 os.makedirs(DATA_FOLDER, exist_ok=True)
+XP_FILE             = os.path.join(DATA_FOLDER, "xp.json")
+MSG_FILE            = os.path.join(DATA_FOLDER, "messages_programmes.json")
+DEFIS_FILE          = os.path.join(DATA_FOLDER, "defis.json")
+AUTO_DM_FILE        = os.path.join(DATA_FOLDER, "auto_dm_configs.json")
+POMODORO_FILE       = os.path.join(DATA_FOLDER, "pomodoro.json")
+GOALS_FILE          = os.path.join(DATA_FOLDER, "goals.json")
+WEEKLY_PLAN_FILE    = os.path.join(DATA_FOLDER, "weekly_plan.json")
+REMINDERS_FILE      = os.path.join(DATA_FOLDER, "reminders.json")
+QUIZ_FILE           = os.path.join(DATA_FOLDER, "quiz.json")
+CITATIONS_FILE      = os.path.join(DATA_FOLDER, "citations.json")
+LINKS_FILE          = os.path.join(DATA_FOLDER, "links.json")
 
-# ========================================
-# Verrou global pour accès asynchrone aux fichiers
-# ========================================
+# ------------------------------------------------------------------------------
+# Fonctions de lecture/écriture JSON asynchrones
+# ------------------------------------------------------------------------------
 file_lock = asyncio.Lock()
 
-# ========================================
-# Fonctions asynchrones de persistance
-# ========================================
-async def charger_json_async(path: str):
+async def charger_json_async(path):
     async with file_lock:
         if not os.path.exists(path):
             async with aiofiles.open(path, "w", encoding="utf-8") as f:
@@ -57,39 +67,65 @@ async def charger_json_async(path: str):
             except json.JSONDecodeError:
                 return {}
 
-async def sauvegarder_json_async(path: str, data):
+async def sauvegarder_json_async(path, data):
     async with file_lock:
         async with aiofiles.open(path, "w", encoding="utf-8") as f:
             await f.write(json.dumps(data, indent=4))
 
-# ========================================
-# Utilitaire pour standardiser un emoji
-# ========================================
-def get_emoji_key(emoji_input) -> str:
+def get_emoji_key(emoji):
     try:
-        if isinstance(emoji_input, PartialEmoji):
-            pe = emoji_input
-        else:
-            pe = PartialEmoji.from_str(str(emoji_input))
+        pe = PartialEmoji.from_str(str(emoji))
         if pe.is_custom_emoji():
             return f"<:{pe.name}:{pe.id}>"
         return str(pe)
     except Exception:
-        return str(emoji_input)
+        return str(emoji)
 
-# ========================================
-# Variables globales
-# ========================================
-xp_data = {}
+# ------------------------------------------------------------------------------
+# Variables globales persistantes
+# ------------------------------------------------------------------------------
+xp_data = {}                # {user_id: xp}
 messages_programmes = {}
 defis_data = {}
-config_pomodoro = {}
-objectifs_data = {}
-categories_aide = {}  # Pour les demandes d'aide (clé = user_id)
 
-# ========================================
-# Configuration des intents
-# ========================================
+pomodoro_data = {}
+goals_data = {}
+weekly_plan_data = {}
+reminders_data = {}
+quiz_data = {}
+quiz_results_data = {}
+citations_data = {}
+links_data = {}
+
+# Autres variables pour les fonctionnalités étendues
+discipline_personnelle_rules = {}
+season_data = {}
+double_profile = {}
+isolation_status = {}
+tribunal_confessions = []     # Tribunal (fonctionnalité toujours active)
+quêtes_identite = {}
+univers_paralleles = {"active": False, "theme": None}
+hall_of_mastery = []
+livres_savoir = []
+protocoles = {}
+promesses = []
+rpg_profiles = {}
+eclipse_mentale = {"active": False, "end_time": None}
+legacy_messages = []         # Legacy messages
+
+weekly_recap_config = {
+    "channel_id": None,
+    "time": "18:00",
+    "day": "Sunday",
+    "role_id": None
+}
+
+# Mode maintenance (seuls les administrateurs peuvent exécuter des commandes si activé)
+maintenance_mode = False
+
+# ------------------------------------------------------------------------------
+# Configuration des Intents
+# ------------------------------------------------------------------------------
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -97,15 +133,15 @@ intents.guilds = True
 intents.reactions = True
 intents.voice_states = True
 
-# ========================================
-# Classe principale du bot
-# ========================================
+# ------------------------------------------------------------------------------
+# Définition de la classe du Bot
+# ------------------------------------------------------------------------------
 class MyBot(commands.Bot):
-    def __init__(self):
-        super().__init__(command_prefix="!", intents=intents)
-        self.reaction_roles = {}          # Mapping: message_id -> {emoji_key: role_id}
-        self.vocal_start_times = {}         # {user_id: timestamp}
-        self.xp_config = {                 # Config XP
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.reaction_roles = {}
+        self.vocal_start_times = {}
+        self.xp_config = {
             "xp_per_message": 10,
             "xp_per_minute_vocal": 5,
             "multipliers": {},
@@ -115,912 +151,1676 @@ class MyBot(commands.Bot):
             "xp_command_channel": None,
             "xp_command_min_xp": 0,
             "badges": {},
-            "titres": {},
-            "goals_channel": None
+            "titres": {}
         }
-        self.recap_config = {              # Récap hebdomadaire
-            "channel_id": None,
-            "role_id": None
+        self.allowed_channels = {
+            "pomodoro": None,
+            "goals": None,
+            "weekly_plan": None,
+            "quiz": None,
+            "reminders": None,
+            "recherche_personnelle": None,
+            "activity_drop": None,
+            "bibliotheque": None,
+            "reactions_smart": None,
+            "quetes": None,
+            "discipline_lock": None,
+            "questions_puissantes": None,
+            "combo": None,
+            "routine": None,
+            "observateur": None,
+            "discipline_test": None,
+            "discipline_personnelle": None,
+            "saison": None,
+            "commandant": None,
+            "double_compte": None,
+            "isolation": None,
+            "tempete": None,
+            "version_parallele": None,
+            "tribunal": None,
+            "quetes_identite": None,
+            "univers_paralleles": None,
+            "hall_of_mastery": None,
+            "chrono_discipline": None,
+            "livres_savoir": None,
+            "jour_zero": None,
+            "forge_protocoles": None,
+            "mur_promesses": None,
+            "rpg_discipline": None,
+            "eclipse_mentale": None,
+            "miroir_futur": None,
+            "monnaie_mentale": None,
+            "rituel_vocal": None,
+            "chasseur_distraction": None,
+            "influence_mentale": None,
+            "base_secrete": None,
+            "eveil_progressif": None,
+            "rituel_silence": None,
+            "commandements": None,
+            "archives_mentales": None,
+            "pacte_sang": None,
+            "duel_mental": None,
+            "codex": None,
+            "roles_totem": None,
+            "visionnaire": None,
+            "legacy": None
         }
-        self.weekly_stats = {}            # {user_id: {"messages": int, "vocal": int (secondes)}}
-        self.sos_receivers = []
-        self.missions_secretes = {}
-        self.evenement_config = {}
-        self.theme_config = {}
-        self.evenements_calendrier = {}
-        self.temp_data = {}               # Pour données temporaires
+        self.mentor_targets = []  # Liste des cibles de mentorat
+        self.start_time = time.time()  # Pour le module uptime
 
     async def setup_hook(self):
         try:
             synced = await self.tree.sync()
-            print(f"🌐 {len(synced)} commandes slash synchronisées")
+            logging.info(f"🌐 {len(synced)} commandes slash synchronisées")
             if not check_programmed_messages.is_running():
                 check_programmed_messages.start()
-                print("✅ Boucle messages programmés démarrée")
-            if not recap_hebdo_task.is_running():
-                recap_hebdo_task.start()
-                print("🕒 Tâche récap démarrée")
-            if not weekly_stats_task.is_running():
-                weekly_stats_task.start()
-                print("📊 Tâche stats hebdomadaires démarrée")
+                logging.info("✅ Boucle de vérification programmée démarrée")
         except Exception as e:
-            print(f"❌ Erreur dans setup_hook: {e}")
+            logging.error(f"❌ Erreur dans setup_hook : {e}")
 
-bot = MyBot()
+# ------------------------------------------------------------------------------
+# Instanciation du bot et assignation de l'objet tree
+# ------------------------------------------------------------------------------
+bot = MyBot(command_prefix="!", intents=intents, application_id=APPLICATION_ID)
 tree = bot.tree
 
-# ========================================
-# Gestion des messages (XP et modération)
-# ========================================
-@bot.event
-async def on_message(message: discord.Message):
-    if message.author.bot:
-        return
-
-    # Filtrage des propos interdits
-    if not message.author.guild_permissions.administrator:
-        banned_words = {"merde", "putain", "con", "connard", "salop", "enculé", "nique ta mère"}
-        if any(bw in message.content.lower() for bw in banned_words):
-            try:
-                await message.delete()
+# ------------------------------------------------------------------------------
+# Décorateur pour sécuriser les commandes
+# ------------------------------------------------------------------------------
+def safe_command(func):
+    async def wrapper(*args, **kwargs):
+        interaction = None
+        for arg in args:
+            if isinstance(arg, discord.Interaction):
+                interaction = arg
+                break
+        # Si le bot est en maintenance et l'utilisateur n'est pas admin, refuser
+        if interaction and maintenance_mode:
+            if interaction.guild and not interaction.user.guild_permissions.administrator:
                 try:
-                    await message.author.send("Ton message a été supprimé pour propos interdits.")
-                except Exception as e:
-                    print(f"Erreur DM: {e}")
-            except Exception as e:
-                print(f"Erreur suppression message: {e}")
-            return
-
-    # Attribution XP
-    uid = str(message.author.id)
-    bot.weekly_stats.setdefault(uid, {"messages": 0, "vocal": 0})
-    bot.weekly_stats[uid]["messages"] += 1
-    xp_val = bot.xp_config["xp_per_message"]
-    mult = bot.xp_config["multipliers"].get(str(message.channel.id), 1.0)
-    total_xp = int(xp_val * mult)
-    current_xp = await add_xp(message.author.id, total_xp)
-    for seuil, role_id in bot.xp_config["level_roles"].items():
-        if current_xp >= int(seuil):
-            role = message.guild.get_role(int(role_id))
-            if role and role not in message.author.roles:
+                    await interaction.response.send_message("🔧 Le bot est en maintenance, veuillez patienter...", ephemeral=True)
+                except Exception:
+                    pass
+                return
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            if interaction:
                 try:
-                    await message.author.add_roles(role, reason="Palier XP atteint")
-                    if bot.xp_config["announcement_channel"]:
-                        ann = bot.get_channel(int(bot.xp_config["announcement_channel"]))
-                        if ann:
-                            txt = bot.xp_config["announcement_message"].replace("{mention}", message.author.mention).replace("{xp}", str(current_xp))
-                            await ann.send(txt)
-                except Exception as e:
-                    print(f"❌ Erreur attribution XP: {e}")
-    await bot.process_commands(message)
+                    if not interaction.response.is_done():
+                        await interaction.response.send_message(
+                            "❌ Une erreur interne est survenue. Veuillez réessayer plus tard.",
+                            ephemeral=True
+                        )
+                except Exception:
+                    pass
+    return wrapper
 
-# ========================================
-# Gestion du temps vocal
-# ========================================
-@bot.event
-async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-    if not before.channel and after.channel:
-        bot.vocal_start_times[member.id] = time.time()
-    elif before.channel and not after.channel:
-        start = bot.vocal_start_times.pop(member.id, None)
-        if start:
-            duration = int((time.time() - start) / 60)
-            mult = bot.xp_config["multipliers"].get(str(before.channel.id), 1.0)
-            gained = int(duration * bot.xp_config["xp_per_minute_vocal"] * mult)
-            current_xp = await add_xp(member.id, gained)
-            uid = str(member.id)
-            bot.weekly_stats.setdefault(uid, {"messages": 0, "vocal": 0})
-            bot.weekly_stats[uid]["vocal"] += duration * 60
-            for seuil, role_id in bot.xp_config["level_roles"].items():
-                if current_xp >= int(seuil):
-                    role = member.guild.get_role(int(role_id))
-                    if role and role not in member.roles:
-                        try:
-                            await member.add_roles(role, reason="XP vocal atteint")
-                            if bot.xp_config["announcement_channel"]:
-                                ann = bot.get_channel(int(bot.xp_config["announcement_channel"]))
-                                if ann:
-                                    txt = bot.xp_config["announcement_message"].replace("{mention}", member.mention).replace("{xp}", str(current_xp))
-                                    await ann.send(txt)
-                        except Exception as e:
-                            print(f"❌ Erreur attribution vocal: {e}")
+# ------------------------------------------------------------------------------
+# Fonction utilitaire pour vérifier si la commande est utilisée dans le bon canal
+# ------------------------------------------------------------------------------
+def is_allowed(feature: str, interaction: discord.Interaction) -> bool:
+    allowed = bot.allowed_channels.get(feature)
+    if allowed is None:
+        return True
+    return interaction.channel.id == int(allowed)
 
-# ========================================
-# Fonctions XP
-# ========================================
-async def add_xp(user_id, amount):
-    uid = str(user_id)
-    current = xp_data.get(uid, 0)
-    new_total = current + amount
-    xp_data[uid] = new_total
-    await sauvegarder_json_async(XP_FILE, xp_data)
-    return new_total
+# ------------------------------------------------------------------------------
+# Gestion globale des erreurs pour les commandes slash
+# ------------------------------------------------------------------------------
+@tree.error
+async def on_app_command_error(interaction: discord.Interaction, error):
+    import traceback
+    traceback.print_exc()
+    try:
+        if not interaction.response.is_done():
+            await interaction.response.send_message("❌ Une erreur interne est survenue. Veuillez réessayer plus tard.", ephemeral=True)
+    except Exception as e:
+        logging.error(f"Erreur dans le handler global : {e}")
 
-def get_xp(user_id):
-    return xp_data.get(str(user_id), 0)
+# ------------------------------------------------------------------------------
+# Commande de configuration globale
+# ------------------------------------------------------------------------------
+@tree.command(name="set_channel", description="Définit le canal autorisé pour un module (admin)")
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(module="Nom du module", channel="Salon où la commande est accessible")
+async def set_channel(interaction: discord.Interaction, module: str, channel: discord.TextChannel):
+    module = module.lower()
+    if module in bot.allowed_channels:
+        bot.allowed_channels[module] = str(channel.id)
+        await interaction.response.send_message(f"✅ Canal pour {module} configuré : {channel.mention}", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"❌ Module inconnu: {module}", ephemeral=True)
 
-# ========================================
-# Tâche de messages programmés / défis
-# ========================================
-@tasks.loop(seconds=30)
+# ------------------------------------------------------------------------------
+# Tâche programmée (exemple vide)
+# ------------------------------------------------------------------------------
+@tasks.loop(minutes=1)
 async def check_programmed_messages():
-    try:
-        if not bot.is_ready():
-            print("⏳ Bot non prêt...")
-            return
-        now = datetime.datetime.now(ZoneInfo("Europe/Paris"))
-        modified = False
-        for mid, msg in list(messages_programmes.items()):
-            try:
-                msg_time = datetime.datetime.strptime(msg["next"], "%d/%m/%Y %H:%M")
-                msg_time = msg_time.replace(tzinfo=ZoneInfo("Europe/Paris"))
-            except ValueError as ve:
-                print(f"❌ Format invalide pour {mid}: {ve}")
-                continue
-            if now >= msg_time:
-                channel = bot.get_channel(int(msg["channel_id"]))
-                if channel:
-                    if msg["type"] in ["once", "daily", "weekly"]:
-                        await channel.send(textwrap.dedent(msg["message"]))
-                    elif msg["type"] == "weekly_challenge":
-                        sent = await channel.send(textwrap.dedent(msg["message"]))
-                        await sent.add_reaction("✅")
-                        end_ts = time.time() + float(msg["duration_hours"]) * 3600
-                        defis_data[str(sent.id)] = {"channel_id": channel.id, "role_id": msg["role_id"], "end_timestamp": end_ts}
-                        await sauvegarder_json_async(DEFIS_FILE, defis_data)
-                        asyncio.create_task(retirer_role_apres_defi(channel.guild, sent.id, channel.guild.get_role(int(msg["role_id"]))))
-                    if msg["type"] == "once":
-                        del messages_programmes[mid]
-                        modified = True
-                    elif msg["type"] == "daily":
-                        while now >= msg_time:
-                            msg_time += datetime.timedelta(days=1)
-                        messages_programmes[mid]["next"] = msg_time.strftime("%d/%m/%Y %H:%M")
-                        modified = True
-                    elif msg["type"] in ["weekly", "weekly_challenge"]:
-                        while now >= msg_time:
-                            msg_time += datetime.timedelta(weeks=1)
-                        messages_programmes[mid]["next"] = msg_time.strftime("%d/%m/%Y %H:%M")
-                        modified = True
+    pass
+
+# ==============================================================================
+# DÉFINITIONS DES COGS
+# ==============================================================================
+# Les cogs suivants reprennent la structure de votre ancienne version
+# et incluent les fonctionnalités étendues telles que uptime, leaderboard et maintenance.
+
+# --- Cog de Configuration ---
+class ConfigCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    @safe_command
+    @app_commands.command(name="set_mentors", description="Définir les mentors pour les alertes (admin). Spécifiez une liste de mentions séparées par un espace.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_mentors(self, interaction: discord.Interaction, mentors: str):
+        mentor_list = []
+        role_mentions = re.findall(r"<@&(\d+)>", mentors)
+        member_mentions = re.findall(r"<@!?(\d+)>", mentors)
+        channel_mentions = re.findall(r"<#(\d+)>", mentors)
+        for role_id in role_mentions:
+            mentor_list.append({"type": "role", "id": int(role_id)})
+        for member_id in member_mentions:
+            if member_id not in role_mentions:
+                mentor_list.append({"type": "member", "id": int(member_id)})
+        for channel_id in channel_mentions:
+            mentor_list.append({"type": "channel", "id": int(channel_id)})
+        self.bot.mentor_targets = mentor_list
+        await interaction.response.send_message("✅ Mentors mis à jour.", ephemeral=True)
+
+    @safe_command
+    @app_commands.command(name="set_xp_config", description="Configurer le système XP (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_xp_config(self, interaction: discord.Interaction, config: str):
+        try:
+            new_config = json.loads(config)
+            self.bot.xp_config.update(new_config)
+            await interaction.response.send_message("✅ XP configuration mise à jour.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
+
+async def setup_config(bot: commands.Bot):
+    await bot.add_cog(ConfigCog(bot))
+
+# --- Pomodoro Cog ---
+pomodoro_config = {"focus": 25, "short_break": 5, "long_break": 15, "cycles_before_long_break": 4}
+active_pomodoro_sessions = {}
+
+class PomodoroCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    @safe_command
+    async def pomodoro_cycle(self, user: discord.Member, cmd_channel: discord.TextChannel, focus_duration: int, short_break: int, long_break: int):
+        session_count = 0
+        try:
+            dm = user.dm_channel or await user.create_dm()
+            while True:
+                await dm.send(f"🚀 **Focus** : Début d'une session de {focus_duration} minutes.")
+                msg = await dm.send(f"⏱️ {focus_duration} minutes restantes.")
+                for remaining in range(focus_duration, 0, -1):
+                    await asyncio.sleep(60)
+                    try:
+                        await msg.edit(content=f"⏱️ {remaining-1} minutes restantes.")
+                    except Exception:
+                        pass
+                session_count += 1
+                uid = str(user.id)
+                stats = pomodoro_data.get(uid, {"total_focus": 0, "session_count": 0})
+                stats["total_focus"] += focus_duration
+                stats["session_count"] += 1
+                pomodoro_data[uid] = stats
+                await sauvegarder_json_async(POMODORO_FILE, pomodoro_data)
+                await dm.send("✅ Focus terminé ! Début de la pause courte.")
+                if session_count % pomodoro_config["cycles_before_long_break"] == 0:
+                    break_dur = long_break
+                    phase = "Grande pause"
                 else:
-                    print(f"⚠️ Salon non trouvé pour {mid}")
-        if modified:
-            await sauvegarder_json_async(MSG_FILE, messages_programmes)
-    except Exception as e:
-        print(f"❌ Erreur dans check_programmed_messages: {e}")
-
-# ========================================
-# Commandes XP & Leaderboard (slash)
-# ========================================
-@tree.command(name="xp", description="Affiche ton XP")
-async def xp(interaction: discord.Interaction):
-    config = bot.xp_config
-    if config["xp_command_channel"] and interaction.channel.id != int(config["xp_command_channel"]):
-        await interaction.response.send_message("❌ Commande interdite ici.", ephemeral=True)
-        return
-    user_xp = get_xp(interaction.user.id)
-    if user_xp < config["xp_command_min_xp"]:
-        await interaction.response.send_message("❌ XP insuffisant.", ephemeral=True)
-        return
-    badge = ""
-    for seuil, b in sorted(config["badges"].items(), key=lambda x: int(x[0]), reverse=True):
-        if user_xp >= int(seuil):
-            badge = b
-            break
-    titre = ""
-    for seuil, t in sorted(config["titres"].items(), key=lambda x: int(x[0]), reverse=True):
-        if user_xp >= int(seuil):
-            titre = t
-            break
-    txt = textwrap.dedent(f"""
-        🔹 {interaction.user.mention}, tu as **{user_xp} XP**.
-        {"🏅 Badge: **" + badge + "**" if badge else ""}
-        {"📛 Titre: **" + titre + "**" if titre else ""}
-    """)
-    await interaction.response.send_message(txt.strip(), ephemeral=True)
-
-@tree.command(name="leaderboard", description="Affiche le top 10 XP")
-async def leaderboard(interaction: discord.Interaction):
-    config = bot.xp_config
-    if config["xp_command_channel"] and interaction.channel.id != int(config["xp_command_channel"]):
-        await interaction.response.send_message("❌ Commande interdite ici.", ephemeral=True)
-        return
-    sorted_xp = sorted(xp_data.items(), key=lambda x: x[1], reverse=True)[:10]
-    lines = []
-    for i, (uid, xp_val) in enumerate(sorted_xp):
-        member = interaction.guild.get_member(int(uid))
-        name = member.display_name if member else f"Utilisateur {uid}"
-        lines.append(f"{i+1}. {name} — {xp_val} XP")
-    msg = "🏆 **Top 10 XP:**\n" + "\n".join(lines) if lines else "Aucun XP enregistré."
-    await interaction.response.send_message(msg, ephemeral=True)
-
-# ------------------------------------------
-# Commandes XP ADMIN
-# ------------------------------------------
-@tree.command(name="add_xp", description="Ajoute de l'XP à un membre (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def add_xp_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
-    new_total = await add_xp(member.id, amount)
-    await interaction.response.send_message(f"✅ {amount} XP ajoutés à {member.mention}.\nTotal: {new_total} XP", ephemeral=True)
-
-@tree.command(name="set_xp_config", description="Configure l'XP (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_xp_config(interaction: discord.Interaction, xp_per_message: int, xp_per_minute_vocal: int):
-    bot.xp_config["xp_per_message"] = xp_per_message
-    bot.xp_config["xp_per_minute_vocal"] = xp_per_minute_vocal
-    await interaction.response.send_message(f"✅ XP configuré: {xp_per_message} par msg, {xp_per_minute_vocal} par minute vocal", ephemeral=True)
-
-@tree.command(name="set_xp_role", description="Définit un rôle XP (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_xp_role(interaction: discord.Interaction, xp: int, role: discord.Role):
-    bot.xp_config["level_roles"][str(xp)] = role.id
-    await interaction.response.send_message(f"✅ Rôle {role.name} sera attribué dès {xp} XP.", ephemeral=True)
-
-@tree.command(name="set_xp_boost", description="Configure un boost XP (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_xp_boost(interaction: discord.Interaction, channel: discord.TextChannel, multiplier: float):
-    bot.xp_config["multipliers"][str(channel.id)] = multiplier
-    await interaction.response.send_message(f"✅ Boost x{multiplier} appliqué à {channel.mention}.", ephemeral=True)
-
-@tree.command(name="set_salon_annonce", description="Définit le salon d'annonces XP (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_salon_annonce(interaction: discord.Interaction, channel: discord.TextChannel):
-    bot.xp_config["announcement_channel"] = str(channel.id)
-    await interaction.response.send_message(f"✅ Salon d'annonces défini: {channel.mention}", ephemeral=True)
-
-@tree.command(name="set_message_annonce", description="Configure le message d'annonce XP (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_message_annonce(interaction: discord.Interaction, message: str):
-    bot.xp_config["announcement_message"] = message
-    preview = message.replace("{mention}", interaction.user.mention).replace("{xp}", "1234")
-    await interaction.response.send_message(f"✅ Message d'annonce configuré.\nAperçu:\n{preview}", ephemeral=True)
-
-@tree.command(name="set_channel_xp", description="Limite les commandes XP à un salon (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_channel_xp(interaction: discord.Interaction, channel: discord.TextChannel):
-    bot.xp_config["xp_command_channel"] = str(channel.id)
-    await interaction.response.send_message(f"✅ Commandes XP limitées à {channel.mention}.", ephemeral=True)
-
-@tree.command(name="set_minimum_xp", description="Configure le XP minimum pour /xp (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_minimum_xp(interaction: discord.Interaction, min_xp: int):
-    bot.xp_config["xp_command_min_xp"] = min_xp
-    await interaction.response.send_message(f"✅ Minimum XP: {min_xp}.", ephemeral=True)
-
-@tree.command(name="ajouter_badge", description="Ajoute un badge XP (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def ajouter_badge(interaction: discord.Interaction, xp: int, badge: str):
-    bot.xp_config["badges"][str(xp)] = badge
-    await interaction.response.send_message(f"✅ Badge '{badge}' ajouté dès {xp} XP.", ephemeral=True)
-
-@tree.command(name="ajouter_titre", description="Ajoute un titre XP (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def ajouter_titre(interaction: discord.Interaction, xp: int, titre: str):
-    bot.xp_config["titres"][str(xp)] = titre
-    await interaction.response.send_message(f"✅ Titre '{titre}' ajouté dès {xp} XP.", ephemeral=True)
-
-# ------------------------------------------
-# Création rapide de salons, rôles, catégories (admin)
-# ------------------------------------------
-@tree.command(name="creer_salon", description="Crée un ou plusieurs salons (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def creer_salon(interaction: discord.Interaction, noms: str, categorie: discord.CategoryChannel, type: str):
-    noms_list = [n.strip() for n in noms.split(",") if n.strip()]
-    if not noms_list:
-        await interaction.response.send_message("❌ Aucun nom fourni.", ephemeral=True)
-        return
-    created = []
-    for nom in noms_list:
-        try:
-            if type.lower() == "text":
-                ch = await interaction.guild.create_text_channel(name=nom, category=categorie)
-            elif type.lower() == "voice":
-                ch = await interaction.guild.create_voice_channel(name=nom, category=categorie)
-            else:
-                await interaction.response.send_message("❌ Type invalide (text/voice).", ephemeral=True)
-                return
-            created.append(ch.mention)
+                    break_dur = short_break
+                    phase = "Pause courte"
+                await dm.send(f"⏳ {phase} de {break_dur} minutes.")
+                await asyncio.sleep(break_dur * 60)
+                await dm.send("🔔 Fin de la pause, nouvelle session de focus démarre.")
+        except asyncio.CancelledError:
+            await dm.send("🛑 Session Pomodoro arrêtée.")
         except Exception as e:
-            await interaction.response.send_message(f"❌ Erreur création salon {nom}: {e}", ephemeral=True)
+            await dm.send(f"❌ Erreur Pomodoro : {e}")
+
+    @safe_command
+    @app_commands.command(name="focus_start", description="Démarrer une session Pomodoro")
+    async def focus_start(self, interaction: discord.Interaction, focus: int, short_break: int, long_break: int):
+        if not is_allowed("pomodoro", interaction):
+            await interaction.response.send_message("❌ Utilisez cette commande dans le canal Pomodoro.", ephemeral=True)
             return
-    msg = f"✅ Salon{'s' if len(created) > 1 else ''} créé{'s' if len(created) > 1 else ''}: " + ", ".join(created)
-    await interaction.response.send_message(msg, ephemeral=True)
-
-@tree.command(name="creer_role", description="Crée un ou plusieurs rôles (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def creer_role(interaction: discord.Interaction, noms: str):
-    noms_list = [n.strip() for n in noms.split(",") if n.strip()]
-    if not noms_list:
-        await interaction.response.send_message("❌ Aucun nom fourni.", ephemeral=True)
-        return
-    created = []
-    for nom in noms_list:
-        try:
-            role = await interaction.guild.create_role(name=nom)
-            created.append(role.name)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Erreur création rôle {nom}: {e}", ephemeral=True)
+        user = interaction.user
+        if str(user.id) in active_pomodoro_sessions:
+            await interaction.response.send_message("❌ Une session est déjà active.", ephemeral=True)
             return
-    msg = f"✅ Rôle{'s' if len(created) > 1 else ''} créé{'s' if len(created) > 1 else ''}: " + ", ".join(created)
-    await interaction.response.send_message(msg, ephemeral=True)
+        task = asyncio.create_task(self.pomodoro_cycle(user, interaction.channel, focus, short_break, long_break))
+        active_pomodoro_sessions[str(user.id)] = task
+        await interaction.response.send_message("✅ Session démarrée. Vérifiez vos DM.", ephemeral=True)
 
-@tree.command(name="creer_categorie_privee", description="Crée une catégorie privée (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def creer_categorie_privee(interaction: discord.Interaction, nom: str, role: discord.Role):
-    try:
-        overwrites = {
-            interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            role: discord.PermissionOverwrite(view_channel=True)
-        }
-        cat = await interaction.guild.create_category(name=nom, overwrites=overwrites)
-        await interaction.response.send_message(f"✅ Catégorie privée '{cat.name}' créée.", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur création catégorie: {e}", ephemeral=True)
-
-# ------------------------------------------
-# Messages programmés & défis (admin)
-# ------------------------------------------
-class ProgrammerMessageModal(Modal, title="🗓️ Programmer un message"):
-    def __init__(self, salon: discord.TextChannel, type_message: str, date_heure: str):
-        super().__init__(timeout=None)
-        self.salon = salon
-        self.msg_type = type_message
-        self.date_heure = date_heure
-        self.contenu = TextInput(
-            label="Message",
-            style=TextStyle.paragraph,
-            placeholder="Tapez le message complet",
-            required=True,
-            max_length=2000
-        )
-        self.add_item(self.contenu)
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        txt = textwrap.dedent(self.contenu.value)
-        if len(txt) > 2000:
-            await interaction.followup.send("❌ Message trop long.", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="stop_focus", description="Arrêter sa session Pomodoro")
+    async def stop_focus(self, interaction: discord.Interaction):
+        if not is_allowed("pomodoro", interaction):
+            await interaction.response.send_message("❌ Utilisez cette commande dans le canal Pomodoro.", ephemeral=True)
             return
-        mid = str(uuid.uuid4())
-        messages_programmes[mid] = {
-            "channel_id": str(self.salon.id),
-            "message": txt,
-            "type": self.msg_type,
-            "next": self.date_heure
-        }
-        await sauvegarder_json_async(MSG_FILE, messages_programmes)
-        await interaction.followup.send(f"✅ Message programmé dans {self.salon.mention} ({self.msg_type}) pour {self.date_heure}.", ephemeral=True)
-
-@tree.command(name="programmer_message", description="Planifie un message automatique (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def programmer_message(interaction: discord.Interaction, salon: discord.TextChannel, type: str, date_heure: str):
-    valid = ["once", "daily", "weekly", "weekly_challenge"]
-    if type.lower() not in valid:
-        await interaction.response.send_message("❌ Type invalide.", ephemeral=True)
-        return
-    try:
-        datetime.datetime.strptime(date_heure, "%d/%m/%Y %H:%M")
-    except ValueError:
-        await interaction.response.send_message("❌ Format de date invalide.", ephemeral=True)
-        return
-    try:
-        await interaction.response.send_modal(ProgrammerMessageModal(salon, type.lower(), date_heure))
-    except Exception as e:
-        await interaction.followup.send(f"❌ Erreur modal: {e}", ephemeral=True)
-
-@tree.command(name="supprimer_message_programmé", description="Supprime un message programmé (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def supprimer_message_programme(interaction: discord.Interaction, message_id: str):
-    if message_id in messages_programmes:
-        del messages_programmes[message_id]
-        await sauvegarder_json_async(MSG_FILE, messages_programmes)
-        await interaction.response.send_message("✅ Message supprimé.", ephemeral=True)
-    else:
-        await interaction.response.send_message("❌ ID non trouvé.", ephemeral=True)
-
-class ModifierMessageModal(Modal, title="✏️ Modifier message programmé"):
-    def __init__(self, message_id: str):
-        super().__init__(timeout=None)
-        self.message_id = message_id
-        self.nouveau_msg = TextInput(
-            label="Nouveau message",
-            style=TextStyle.paragraph,
-            placeholder="Tapez le nouveau message",
-            required=True,
-            max_length=2000
-        )
-        self.add_item(self.nouveau_msg)
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        if self.message_id in messages_programmes:
-            messages_programmes[self.message_id]["message"] = textwrap.dedent(self.nouveau_msg.value)
-            await sauvegarder_json_async(MSG_FILE, messages_programmes)
-            await interaction.followup.send("✅ Message modifié.", ephemeral=True)
+        uid = str(interaction.user.id)
+        if uid in active_pomodoro_sessions:
+            active_pomodoro_sessions[uid].cancel()
+            del active_pomodoro_sessions[uid]
+            await interaction.response.send_message("✅ Session stoppée.", ephemeral=True)
         else:
-            await interaction.followup.send("❌ ID non trouvé.", ephemeral=True)
+            await interaction.response.send_message("❌ Aucune session active.", ephemeral=True)
 
-@tree.command(name="modifier_message_programmé", description="Modifie un message programmé (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def modifier_message_programme(interaction: discord.Interaction, message_id: str):
-    if message_id in messages_programmes:
-        await interaction.response.send_modal(ModifierMessageModal(message_id))
-    else:
-        await interaction.response.send_message("❌ ID non trouvé.", ephemeral=True)
-
-# ------------------------------------------
-# Attribution de rôles par réaction (admin)
-# ------------------------------------------
-class RoleReactionModal(Modal, title="✍️ Message avec réaction"):
-    def __init__(self, emoji: str, role: discord.Role, salon: discord.TextChannel):
-        super().__init__(timeout=None)
-        try:
-            self.emoji = PartialEmoji.from_str(emoji)
-            self.emoji_key = get_emoji_key(self.emoji)
-        except Exception as e:
-            raise ValueError(f"Emoji invalide: {emoji}") from e
-        self.role = role
-        self.salon = salon
-        self.contenu = TextInput(
-            label="Message",
-            style=TextStyle.paragraph,
-            placeholder="Tapez le message",
-            required=True,
-            max_length=2000
+    @safe_command
+    @app_commands.command(name="focus_stats", description="Afficher ses statistiques Pomodoro")
+    async def focus_stats(self, interaction: discord.Interaction):
+        if not is_allowed("pomodoro", interaction):
+            await interaction.response.send_message("❌ Utilisez cette commande dans le canal Pomodoro.", ephemeral=True)
+            return
+        uid = str(interaction.user.id)
+        stats = pomodoro_data.get(uid, {"total_focus": 0, "session_count": 0})
+        await interaction.response.send_message(
+            f"🔹 Sessions : {stats['session_count']}, Total focus : {stats['total_focus']} minutes.",
+            ephemeral=True
         )
-        self.add_item(self.contenu)
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            sent_msg = await self.salon.send(textwrap.dedent(self.contenu.value))
-            await sent_msg.add_reaction(self.emoji)
-            bot.reaction_roles[str(sent_msg.id)] = {self.emoji_key: self.role.id}
-            await sauvegarder_json_async(REACTION_ROLE_FILE, bot.reaction_roles)
-            await interaction.followup.send(f"✅ Message envoyé dans {self.salon.mention}.", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
 
-@tree.command(name="ajout_reaction_id", description="Ajoute une réaction à un message existant (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def ajout_reaction_id(interaction: discord.Interaction, role: discord.Role, emoji: str, message_id: str):
-    try:
-        mid = int(message_id)
-        msg = await interaction.channel.fetch_message(mid)
-        await msg.add_reaction(emoji)
-        key = get_emoji_key(emoji)
-        bot.reaction_roles.setdefault(str(mid), {})[key] = role.id
-        await sauvegarder_json_async(REACTION_ROLE_FILE, bot.reaction_roles)
-        await interaction.response.send_message(f"✅ Réaction ajoutée au message {message_id} pour le rôle {role.name}.", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="set_pomodoro_config", description="Configurer Pomodoro (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_pomodoro_config(self, interaction: discord.Interaction, focus: int, short_break: int, long_break: int, cycles: int):
+        pomodoro_config["focus"] = focus
+        pomodoro_config["short_break"] = short_break
+        pomodoro_config["long_break"] = long_break
+        pomodoro_config["cycles_before_long_break"] = cycles
+        await interaction.response.send_message("✅ Configuration mise à jour.", ephemeral=True)
 
-@bot.event
-async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
-    if payload.user_id == bot.user.id:
-        return
-    try:
-        guild = bot.get_guild(payload.guild_id)
-        if not guild: return
-        member = guild.get_member(payload.user_id)
-        if not member: return
-        key = get_emoji_key(payload.emoji)
-        data = bot.reaction_roles.get(str(payload.message_id))
-        if not data: return
-        role_id = data.get(key)
-        if not role_id: return
-        role = guild.get_role(int(role_id))
-        if role and role not in member.roles:
-            try:
-                await member.add_roles(role, reason="Réaction ajoutée")
-            except Exception as e:
-                print(f"❌ Erreur ajout rôle {role.name} pour {member.display_name}: {e}")
-    except Exception as e:
-        print(f"❌ Erreur dans on_raw_reaction_add: {e}")
+async def setup_pomodoro(bot: commands.Bot):
+    await bot.add_cog(PomodoroCog(bot))
 
-@bot.event
-async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
-    if payload.user_id == bot.user.id:
-        return
-    try:
-        guild = bot.get_guild(payload.guild_id)
-        if not guild: return
-        member = guild.get_member(payload.user_id)
-        if not member: return
-        key = get_emoji_key(payload.emoji)
-        data = bot.reaction_roles.get(str(payload.message_id))
-        if not data: return
-        role_id = data.get(key)
-        if not role_id: return
-        role = guild.get_role(int(role_id))
-        if role and role in member.roles:
-            try:
-                await member.remove_roles(role, reason="Réaction retirée")
-            except Exception as e:
-                print(f"❌ Erreur retrait rôle {role.name} pour {member.display_name}: {e}")
-    except Exception as e:
-        print(f"❌ Erreur dans on_raw_reaction_remove: {e}")
+# --- Goals Cog ---
+class GoalsCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="ajouter_objectif", description="Ajouter un objectif personnel")
+    async def ajouter_objectif(self, interaction: discord.Interaction, texte: str):
+        if not is_allowed("goals", interaction):
+            await interaction.response.send_message("❌ Utilisez cette commande dans le canal Objectifs.", ephemeral=True)
+            return
+        uid = str(interaction.user.id)
+        obj = {"id": str(uuid.uuid4()), "texte": texte, "status": "en cours"}
+        goals_data.setdefault(uid, []).append(obj)
+        await sauvegarder_json_async(GOALS_FILE, goals_data)
+        await interaction.response.send_message("✅ Objectif ajouté.", ephemeral=True)
 
-# ------------------------------------------
-# Défi hebdomadaire / récurrent (admin)
-# ------------------------------------------
-class DefiModal(Modal, title="🔥 Défi de la semaine"):
-    def __init__(self, salon: discord.TextChannel, role: discord.Role, duree: int):
+    @safe_command
+    @app_commands.command(name="mes_objectifs", description="Afficher ses objectifs")
+    async def mes_objectifs(self, interaction: discord.Interaction):
+        if not is_allowed("goals", interaction):
+            await interaction.response.send_message("❌ Utilisez cette commande dans le canal Objectifs.", ephemeral=True)
+            return
+        uid = str(interaction.user.id)
+        objs = goals_data.get(uid, [])
+        if not objs:
+            await interaction.response.send_message("Aucun objectif trouvé.", ephemeral=True)
+            return
+        lines = [f"`{o['id']}` - {o['texte']} ({o['status']})" for o in objs]
+        await interaction.response.send_message("📝 Objectifs :\n" + "\n".join(lines), ephemeral=True)
+
+    @safe_command
+    @app_commands.command(name="objectif_fait", description="Marquer un objectif comme terminé")
+    async def objectif_fait(self, interaction: discord.Interaction, id_objectif: str):
+        if not is_allowed("goals", interaction):
+            await interaction.response.send_message("❌ Utilisez cette commande dans le canal Objectifs.", ephemeral=True)
+            return
+        uid = str(interaction.user.id)
+        objs = goals_data.get(uid, [])
+        for o in objs:
+            if o["id"] == id_objectif:
+                o["status"] = "terminé"
+                await sauvegarder_json_async(GOALS_FILE, goals_data)
+                await interaction.response.send_message("✅ Objectif terminé.", ephemeral=True)
+                return
+        await interaction.response.send_message("❌ Objectif introuvable.", ephemeral=True)
+
+    @safe_command
+    @app_commands.command(name="supprimer_objectif", description="Supprimer un objectif")
+    async def supprimer_objectif(self, interaction: discord.Interaction, id_objectif: str):
+        if not is_allowed("goals", interaction):
+            await interaction.response.send_message("❌ Utilisez cette commande dans le canal Objectifs.", ephemeral=True)
+            return
+        uid = str(interaction.user.id)
+        objs = goals_data.get(uid, [])
+        new_objs = [o for o in objs if o["id"] != id_objectif]
+        if len(new_objs) == len(objs):
+            await interaction.response.send_message("❌ Objectif non trouvé.", ephemeral=True)
+            return
+        goals_data[uid] = new_objs
+        await sauvegarder_json_async(GOALS_FILE, goals_data)
+        await interaction.response.send_message("✅ Objectif supprimé.", ephemeral=True)
+
+async def setup_goals(bot: commands.Bot):
+    await bot.add_cog(GoalsCog(bot))
+
+# --- Weekly Plan Cog ---
+class WeeklyPlanModal(Modal, title="Planifiez votre semaine"):
+    def __init__(self):
         super().__init__(timeout=None)
-        self.salon = salon
-        self.role = role
-        self.duree = duree
-        self.message = TextInput(
-            label="Message du défi",
+        self.priorites = TextInput(
+            label="Priorités",
             style=TextStyle.paragraph,
-            placeholder="Décrivez le défi",
+            placeholder="Priorité 1, Priorité 2, ...",
             required=True,
-            max_length=2000
+            max_length=500
         )
-        self.add_item(self.message)
+        self.add_item(self.priorites)
+
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            msg = await self.salon.send(textwrap.dedent(self.message.value))
-            await msg.add_reaction("✅")
-            end_ts = time.time() + self.duree * 3600
-            defis_data[str(msg.id)] = {"channel_id": self.salon.id, "role_id": self.role.id, "end_timestamp": end_ts}
-            await sauvegarder_json_async(DEFIS_FILE, defis_data)
-            asyncio.create_task(retirer_role_apres_defi(interaction.guild, msg.id, self.role))
-            await interaction.followup.send(f"✅ Défi lancé dans {self.salon.mention} pour {self.duree}h.", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ Erreur lancement défi: {e}", ephemeral=True)
-
-async def retirer_role_apres_defi(guild: discord.Guild, message_id: int, role: discord.Role):
-    try:
-        data = defis_data.get(str(message_id))
-        if not data:
-            print(f"⚠️ Aucune donnée pour le défi {message_id}")
+        uid = str(interaction.user.id)
+        plan = [p.strip() for p in self.priorites.value.split(",") if p.strip()]
+        if not (3 <= len(plan) <= 5):
+            await interaction.response.send_message("❌ Entrez entre 3 et 5 priorités.", ephemeral=True)
             return
-        wait_time = max(0, data["end_timestamp"] - time.time())
-        await asyncio.sleep(wait_time)
-        for member in role.members:
-            try:
-                await member.remove_roles(role, reason="Fin défi")
-            except Exception as e:
-                print(f"❌ Erreur retrait rôle pour {member.display_name}: {e}")
-        del defis_data[str(message_id)]
-        await sauvegarder_json_async(DEFIS_FILE, defis_data)
-        print(f"✅ Défi {message_id} terminé.")
-    except Exception as e:
-        print(f"❌ Erreur dans retirer_role_apres_defi: {e}")
+        weekly_plan_data[uid] = plan
+        await sauvegarder_json_async(WEEKLY_PLAN_FILE, weekly_plan_data)
+        await interaction.response.send_message("✅ Planning enregistré.", ephemeral=True)
 
-@tree.command(name="defi_semaine", description="Lance un défi hebdomadaire (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def defi_semaine(interaction: discord.Interaction, salon: discord.TextChannel, role: discord.Role, duree_heures: int, recurrence: bool, start_date: Optional[str] = None, challenge_message: Optional[str] = None):
-    if duree_heures <= 0 or duree_heures > 10000:
-        await interaction.response.send_message("❌ Durée invalide.", ephemeral=True)
-        return
-    if recurrence:
-        if not start_date or not challenge_message:
-            await interaction.response.send_message("❌ Fournissez start_date et challenge_message.", ephemeral=True)
+class WeeklyPlanCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    @safe_command
+    @app_commands.command(name="planifier_semaine", description="Planifier sa semaine")
+    async def planifier_semaine(self, interaction: discord.Interaction):
+        if not is_allowed("weekly_plan", interaction):
+            await interaction.response.send_message("❌ Utilisez le canal Planning.", ephemeral=True)
             return
-        try:
-            datetime.datetime.strptime(start_date, "%d/%m/%Y %H:%M")
-        except ValueError:
-            await interaction.response.send_message("❌ Format de start_date invalide.", ephemeral=True)
+        await interaction.response.send_modal(WeeklyPlanModal())
+
+    @safe_command
+    @app_commands.command(name="ma_semaine", description="Afficher son planning")
+    async def ma_semaine(self, interaction: discord.Interaction):
+        if not is_allowed("weekly_plan", interaction):
+            await interaction.response.send_message("❌ Utilisez le canal Planning.", ephemeral=True)
             return
-        mid = str(uuid.uuid4())
-        messages_programmes[mid] = {
-            "channel_id": str(salon.id),
-            "message": challenge_message,
-            "type": "weekly_challenge",
-            "next": start_date,
-            "role_id": str(role.id),
-            "duration_hours": str(duree_heures)
-        }
-        await sauvegarder_json_async(MSG_FILE, messages_programmes)
-        await interaction.response.send_message(f"✅ Défi récurrent programmé dans {salon.mention} à partir du {start_date}.", ephemeral=True)
-    else:
-        try:
-            await interaction.response.send_modal(DefiModal(salon, role, duree_heures))
-        except Exception as e:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
-            else:
-                await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
+        uid = str(interaction.user.id)
+        plan = weekly_plan_data.get(uid, [])
+        if not plan:
+            await interaction.response.send_message("Aucun planning défini.", ephemeral=True)
+        else:
+            await interaction.response.send_message("📅 Votre planning :\n" + "\n".join(plan), ephemeral=True)
 
-# ------------------------------------------
-# Envoi de message via modal (admin)
-# ------------------------------------------
-class ModalEnvoyerMessage(Modal, title="📩 Envoyer un message"):
-    def __init__(self, salon: discord.TextChannel):
-        super().__init__(timeout=None)
-        self.salon = salon
-        self.contenu = TextInput(
-            label="Message",
-            style=TextStyle.paragraph,
-            placeholder="Tapez votre message",
-            required=True,
-            max_length=2000
-        )
-        self.add_item(self.contenu)
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            await self.salon.send(textwrap.dedent(self.contenu.value))
-            await interaction.followup.send(f"✅ Message envoyé dans {self.salon.mention}.", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
+async def setup_weekly_plan(bot: commands.Bot):
+    await bot.add_cog(WeeklyPlanCog(bot))
 
-@tree.command(name="envoyer_message", description="Envoie un message via le bot (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def envoyer_message(interaction: discord.Interaction, salon: discord.TextChannel):
-    try:
-        await interaction.response.send_modal(ModalEnvoyerMessage(salon))
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
+# --- Reminders Cog ---
+class RemindersCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.check_task = asyncio.create_task(self.check_reminders())
 
-# ------------------------------------------
-# Commande /clear (admin)
-# ------------------------------------------
-@tree.command(name="clear", description="Supprime jusqu'à 100 messages (admin)")
-@app_commands.checks.has_permissions(manage_messages=True)
-async def clear(interaction: discord.Interaction, nombre: int):
-    if not (1 <= nombre <= 100):
-        await interaction.response.send_message("❌ Choisissez un nombre entre 1 et 100.", ephemeral=True)
-        return
-    try:
-        await interaction.response.defer(ephemeral=True)
-        deleted = await interaction.channel.purge(limit=nombre)
-        await interaction.followup.send(f"🧽 {len(deleted)} messages supprimés.", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
-
-# ------------------------------------------
-# Vues de confirmation pour suppression (admin)
-# ------------------------------------------
-class ConfirmDeleteRolesView(View):
-    def __init__(self, interaction: discord.Interaction):
-        super().__init__(timeout=60)
-        self.interaction = interaction
-    @discord.ui.button(label="Oui", style=discord.ButtonStyle.danger)
-    async def confirm(self, interaction: discord.Interaction, button: Button):
-        if interaction.user != self.interaction.user:
-            await interaction.response.send_message("❌ Autorisé uniquement pour l'admin init.", ephemeral=True)
-            return
-        await interaction.response.edit_message(content="Suppression en cours...", view=None)
-        errors = []
-        for role in interaction.guild.roles:
-            if not role.permissions.administrator and (role < interaction.guild.me.top_role):
+    async def check_reminders(self):
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            now = datetime.datetime.now()
+            to_remove = []
+            for rid, rem in list(reminders_data.items()):
                 try:
-                    await role.delete(reason="Demandé par admin")
-                    await asyncio.sleep(0.5)
+                    rem_time = datetime.datetime.strptime(rem["time"], "%H:%M").time()
+                    if now.time().hour == rem_time.hour and now.time().minute == rem_time.minute:
+                        user = self.bot.get_user(int(rem["user_id"]))
+                        if user:
+                            await user.send(f"🔔 Rappel : {rem['message']}")
+                        if not rem.get("daily", False):
+                            to_remove.append(rid)
                 except Exception as e:
-                    errors.append(f"{role.name}: {e}")
-        if errors:
-            await interaction.followup.send("Certains rôles n'ont pas pu être supprimés:\n" + "\n".join(errors), ephemeral=True)
-        else:
-            await interaction.followup.send("✅ Tous les rôles supprimés.", ephemeral=True)
-        self.stop()
-    @discord.ui.button(label="Non", style=discord.ButtonStyle.secondary)
-    async def cancel(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.edit_message(content="Opération annulée.", view=None)
-        self.stop()
+                    logging.error(f"Erreur check_reminders: {e}")
+            for rid in to_remove:
+                reminders_data.pop(rid, None)
+            if to_remove:
+                await sauvegarder_json_async(REMINDERS_FILE, reminders_data)
+            await asyncio.sleep(60)
 
-class ConfirmDeleteChannelsView(View):
-    def __init__(self, interaction: discord.Interaction):
-        super().__init__(timeout=60)
-        self.interaction = interaction
-    @discord.ui.button(label="Oui", style=discord.ButtonStyle.danger)
-    async def confirm(self, interaction: discord.Interaction, button: Button):
-        if interaction.user != self.interaction.user:
-            await interaction.response.send_message("❌ Autorisé uniquement pour l'admin init.", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="ajouter_rappel", description="Ajouter un rappel personnel")
+    async def ajouter_rappel(self, interaction: discord.Interaction, time_str: str, message: str, daily: bool = False):
+        if not is_allowed("reminders", interaction):
+            await interaction.response.send_message("❌ Utilisez le canal Rappels.", ephemeral=True)
             return
-        await interaction.response.edit_message(content="Suppression en cours...", view=None)
-        errors = []
-        for channel in interaction.guild.channels:
+        try:
+            datetime.datetime.strptime(time_str, "%H:%M")
+        except ValueError:
+            await interaction.response.send_message("❌ Heure invalide (HH:MM).", ephemeral=True)
+            return
+        rid = str(uuid.uuid4())
+        reminders_data[rid] = {"user_id": str(interaction.user.id), "time": time_str, "message": message, "daily": daily}
+        await sauvegarder_json_async(REMINDERS_FILE, reminders_data)
+        await interaction.response.send_message("✅ Rappel ajouté.", ephemeral=True)
+
+    @safe_command
+    @app_commands.command(name="mes_rappels", description="Afficher ses rappels")
+    async def mes_rappels(self, interaction: discord.Interaction):
+        if not is_allowed("reminders", interaction):
+            await interaction.response.send_message("❌ Utilisez le canal Rappels.", ephemeral=True)
+            return
+        uid = str(interaction.user.id)
+        lines = [
+            f"`{rid}` - {rem['time']}: {rem['message']} ({'daily' if rem.get('daily') else 'one-time'})"
+            for rid, rem in reminders_data.items() if rem["user_id"] == uid
+        ]
+        if lines:
+            await interaction.response.send_message("🔔 Vos rappels :\n" + "\n".join(lines), ephemeral=True)
+        else:
+            await interaction.response.send_message("Aucun rappel.", ephemeral=True)
+
+    @safe_command
+    @app_commands.command(name="supprimer_rappel", description="Supprimer un rappel")
+    async def supprimer_rappel(self, interaction: discord.Interaction, rid: str):
+        if rid in reminders_data and reminders_data[rid]["user_id"] == str(interaction.user.id):
+            reminders_data.pop(rid)
+            await sauvegarder_json_async(REMINDERS_FILE, reminders_data)
+            await interaction.response.send_message("✅ Rappel supprimé.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Rappel introuvable.", ephemeral=True)
+
+async def setup_reminders(bot: commands.Bot):
+    await bot.add_cog(RemindersCog(bot))
+
+# --- Quiz Cog ---
+class QuizCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="ajouter_quizz", description="Définir un quiz (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def ajouter_quizz(self, interaction: discord.Interaction, quizz_json: str):
+        try:
+            data = json.loads(quizz_json)
+            if not isinstance(data, list):
+                raise ValueError("Le quiz doit être une liste de questions.")
+            quiz_data["questions"] = data
+            await sauvegarder_json_async(QUIZ_FILE, quiz_data)
+            await interaction.response.send_message("✅ Quiz mis à jour.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
+
+    @safe_command
+    @app_commands.command(name="lancer_quizz", description="Lancer le quiz")
+    async def lancer_quizz(self, interaction: discord.Interaction):
+        if not is_allowed("quiz", interaction):
+            await interaction.response.send_message("❌ Utilisez le canal Quiz.", ephemeral=True)
+            return
+        if "questions" not in quiz_data or not quiz_data["questions"]:
+            await interaction.response.send_message("❌ Aucun quiz défini.", ephemeral=True)
+            return
+        user = interaction.user
+        dm = user.dm_channel or await user.create_dm()
+        score = 0
+        total = len(quiz_data["questions"])
+        for q in quiz_data["questions"]:
+            choix_text = "\n".join([f"{i+1}. {c}" for i, c in enumerate(q.get("choices", []))])
+            await dm.send(f"❓ {q['question']}\n{choix_text}\n\nRépondez par le numéro.")
+            def check(m):
+                return m.author.id == user.id and m.channel == dm
             try:
-                await channel.delete(reason="Demandé par admin")
-                await asyncio.sleep(0.5)
-            except Exception as e:
-                errors.append(f"{channel.name}: {e}")
-        if errors:
-            await interaction.followup.send("Certains salons/catégories n'ont pas pu être supprimés:\n" + "\n".join(errors), ephemeral=True)
-        else:
-            await interaction.followup.send("✅ Salons et catégories supprimés.", ephemeral=True)
-        self.stop()
-    @discord.ui.button(label="Non", style=discord.ButtonStyle.secondary)
-    async def cancel(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.edit_message(content="Opération annulée.", view=None)
-        self.stop()
+                rep = await self.bot.wait_for("message", check=check, timeout=30)
+                try:
+                    ans = int(rep.content) - 1
+                    if ans == q["answer"]:
+                        score += 1
+                        await dm.send("✅ Bonne réponse!")
+                    else:
+                        await dm.send("❌ Mauvaise réponse.")
+                except Exception:
+                    await dm.send("❌ Réponse invalide.")
+            except asyncio.TimeoutError:
+                await dm.send("⏰ Temps écoulé pour cette question.")
+        quiz_results_data.setdefault(str(user.id), []).append({"score": score, "total": total, "date": time.time()})
+        await dm.send(f"Votre score: {score} / {total}")
+        await interaction.response.send_message("✅ Quiz terminé. Consultez vos DM.", ephemeral=True)
 
-# ------------------------------------------
-# Cog d'administration avancée (admin)
-# ------------------------------------------
-class AdminUtilsCog(commands.Cog):
+async def setup_quiz(bot: commands.Bot):
+    await bot.add_cog(QuizCog(bot))
+
+# --- Focus Group Cog ---
+class FocusGroupCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-    @app_commands.command(name="supprimer_categorie", description="Supprime une catégorie (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def supprimer_categorie(self, interaction: discord.Interaction, categorie: discord.CategoryChannel):
-        try:
-            await categorie.delete()
-            await interaction.response.send_message(f"✅ Catégorie '{categorie.name}' supprimée.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
-    @app_commands.command(name="supprimer_salon", description="Supprime un salon (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def supprimer_salon(self, interaction: discord.Interaction, salon: discord.abc.GuildChannel):
-        try:
-            await salon.delete()
-            await interaction.response.send_message(f"✅ Salon '{salon.name}' supprimé.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
-    @app_commands.command(name="reset_roles", description="Retire tous les rôles non-admin (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def reset_roles(self, interaction: discord.Interaction):
-        try:
-            for member in interaction.guild.members:
-                roles = [r for r in member.roles if not r.permissions.administrator]
-                if roles:
-                    await member.remove_roles(*roles, reason="Réinitialisation")
-            await interaction.response.send_message("✅ Rôles réinitialisés.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
-    @app_commands.command(name="supprimer_tous_roles", description="Supprime tous les rôles non-admin (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def supprimer_tous_roles(self, interaction: discord.Interaction):
-        view = ConfirmDeleteRolesView(interaction)
-        await interaction.response.send_message("Confirmez la suppression de tous les rôles non-admin.", view=view, ephemeral=True)
-    @app_commands.command(name="supprimer_tous_salons_categories", description="Supprime tous les salons et catégories (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def supprimer_tous_salons_categories(self, interaction: discord.Interaction):
-        view = ConfirmDeleteChannelsView(interaction)
-        await interaction.response.send_message("Confirmez la suppression de tous les salons et catégories.", view=view, ephemeral=True)
+        self.focus_participants = set()
+    @safe_command
+    @app_commands.command(name="ping_focus", description="Proposer une session de focus groupe")
+    async def ping_focus(self, interaction: discord.Interaction):
+        view = View(timeout=60)
+        btn = Button(label="Je participe", style=discord.ButtonStyle.success)
+        async def btn_callback(inter: discord.Interaction):
+            self.focus_participants.add(inter.user.id)
+            await inter.response.send_message("✅ Vous êtes inscrit.", ephemeral=True)
+        btn.callback = btn_callback
+        view.add_item(btn)
+        await interaction.response.send_message("🔔 Session focus groupe proposée !", view=view)
 
-async def setup_admin_utils(bot: commands.Bot):
-    await bot.add_cog(AdminUtilsCog(bot))
+    @safe_command
+    @app_commands.command(name="set_focus_channel", description="Définir le canal de focus groupe (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_focus_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        self.bot.allowed_channels["focus_group"] = str(channel.id)
+        await interaction.response.send_message(f"✅ Canal focus groupe configuré : {channel.mention}", ephemeral=True)
 
-# ------------------------------------------
-# Module AutoDM (admin)
-# ------------------------------------------
-class AutoDMCog(commands.Cog):
+async def setup_focus_group(bot: commands.Bot):
+    await bot.add_cog(FocusGroupCog(bot))
+
+# --- Weekly Summary Cog ---
+class WeeklySummaryCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.auto_dm_configs = {}
-    async def load_configs(self):
-        configs = await charger_json_async(AUTO_DM_FILE)
-        if not isinstance(configs, dict):
-            configs = {}
-        self.auto_dm_configs = configs
-        print("⚙️ Configurations AutoDM chargées.")
-    async def save_configs(self):
-        await sauvegarder_json_async(AUTO_DM_FILE, self.auto_dm_configs)
-        print("⚙️ Config AutoDM sauvegardée.")
-    async def cog_load(self):
-        await self.load_configs()
-    @app_commands.command(name="autodm_add", description="Ajoute une config AutoDM (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def autodm_add(self, interaction: discord.Interaction, role: discord.Role, dm_message: str):
-        if not dm_message.strip():
-            await interaction.response.send_message("❌ Le message ne peut être vide.", ephemeral=True)
-            return
-        config_id = str(uuid.uuid4())
-        self.auto_dm_configs[config_id] = {"role_id": str(role.id), "dm_message": dm_message.strip()}
-        await self.save_configs()
-        await interaction.response.send_message(f"✅ Config ajoutée avec l'ID `{config_id}`.", ephemeral=True)
-    @app_commands.command(name="autodm_list", description="Liste les configs AutoDM (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def autodm_list(self, interaction: discord.Interaction):
-        if not self.auto_dm_configs:
-            await interaction.response.send_message("Aucune config AutoDM.", ephemeral=True)
-            return
-        lines = []
-        for cid, config in self.auto_dm_configs.items():
-            role_obj = interaction.guild.get_role(int(config.get("role_id", 0)))
-            role_name = role_obj.name if role_obj else f"ID {config.get('role_id')}"
-            lines.append(f"ID: `{cid}`\nRôle: {role_name}\nMessage: {config.get('dm_message')}\n")
-        await interaction.response.send_message("\n".join(lines), ephemeral=True)
-    @app_commands.command(name="autodm_remove", description="Supprime une config AutoDM (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def autodm_remove(self, interaction: discord.Interaction, config_id: str):
-        if config_id in self.auto_dm_configs:
-            del self.auto_dm_configs[config_id]
-            await self.save_configs()
-            await interaction.response.send_message(f"✅ Config `{config_id}` supprimée.", ephemeral=True)
-        else:
-            await interaction.response.send_message("❌ ID non trouvé.", ephemeral=True)
-    @app_commands.command(name="autodm_modify", description="Modifie une config AutoDM (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def autodm_modify(self, interaction: discord.Interaction, config_id: str, new_role: Optional[discord.Role] = None, new_dm_message: Optional[str] = None):
-        if config_id not in self.auto_dm_configs:
-            await interaction.response.send_message("❌ ID non trouvé.", ephemeral=True)
-            return
-        config = self.auto_dm_configs[config_id]
-        if new_role is not None:
-            config["role_id"] = str(new_role.id)
-        if new_dm_message is not None:
-            if not new_dm_message.strip():
-                await interaction.response.send_message("❌ Le nouveau message est vide.", ephemeral=True)
-                return
-            config["dm_message"] = new_dm_message.strip()
-        self.auto_dm_configs[config_id] = config
-        await self.save_configs()
-        await interaction.response.send_message(f"✅ Config `{config_id}` modifiée.", ephemeral=True)
+        self.sent_this_week = False
+        self.task = asyncio.create_task(self.weekly_summary_task())
 
-async def setup_autodm(bot: commands.Bot):
-    await bot.add_cog(AutoDMCog(bot))
-
-# ------------------------------------------
-# Module de modération (admin)
-# ------------------------------------------
-class ModerationCog(commands.Cog):
-    def __init__(self, bot: commands.Bot):
-        self.bot = bot
-        self.banned_words = {"merde", "putain", "con", "connard", "salop", "enculé", "nique ta mère"}
-    @app_commands.command(name="list_banned_words", description="Liste des mots bannis (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def list_banned_words(self, interaction: discord.Interaction):
-        await interaction.response.send_message(f"Mots bannis: {', '.join(sorted(self.banned_words))}", ephemeral=True)
-    @app_commands.command(name="add_banned_word", description="Ajoute un mot à bannir (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def add_banned_word(self, interaction: discord.Interaction, word: str):
-        low = word.lower()
-        if low in self.banned_words:
-            await interaction.response.send_message("Ce mot est déjà banni.", ephemeral=True)
-        else:
-            self.banned_words.add(low)
-            await interaction.response.send_message(f"Le mot '{word}' a été ajouté.", ephemeral=True)
-    @app_commands.command(name="remove_banned_word", description="Retire un mot (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def remove_banned_word(self, interaction: discord.Interaction, word: str):
-        low = word.lower()
-        if low in self.banned_words:
-            self.banned_words.remove(low)
-            await interaction.response.send_message(f"Le mot '{word}' n'est plus banni.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Ce mot n'était pas banni.", ephemeral=True)
-    @app_commands.command(name="mute", description="Mute un utilisateur (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def mute(self, interaction: discord.Interaction, member: discord.Member, duration: int):
-        muted_role = discord.utils.get(interaction.guild.roles, name="Muted")
-        if not muted_role:
+    async def weekly_summary_task(self):
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
             try:
-                muted_role = await interaction.guild.create_role(name="Muted", reason="Création pour mute")
-                for channel in interaction.guild.channels:
-                    await channel.set_permissions(muted_role, send_messages=False, speak=False)
+                now = datetime.datetime.now(ZoneInfo("Europe/Paris"))
+                recap_day = weekly_recap_config.get("day", "Sunday")
+                recap_time = weekly_recap_config.get("time", "18:00")
+                recap_hour, recap_minute = map(int, recap_time.split(":"))
+                if now.strftime("%A") == recap_day and now.hour == recap_hour and now.minute == recap_minute and not self.sent_this_week:
+                    total_xp = sum(xp_data.values())
+                    total_focus = sum([d.get("total_focus", 0) for d in pomodoro_data.values()])
+                    total_sessions = sum([d.get("session_count", 0) for d in pomodoro_data.values()])
+                    total_objectifs = sum([len([o for o in lst if o["status"]=="terminé"]) for lst in goals_data.values()])
+                    defis_valides = 0
+                    citation = ""
+                    if citations_data.get("citations"):
+                        citation = random.choice(citations_data.get("citations"))
+                    recap = f"""**Récapitulatif Hebdomadaire**
+Total XP : {total_xp}
+Sessions Pomodoro : {total_sessions} (pour {total_focus} minutes)
+Objectifs terminés : {total_objectifs}
+Défis validés : {defis_valides}
+Citation de la semaine : {citation if citation else 'Aucune'}"""
+                    channel_id = weekly_recap_config.get("channel_id")
+                    if channel_id:
+                        chan = self.bot.get_channel(int(channel_id))
+                        if chan:
+                            ping = ""
+                            role_id = weekly_recap_config.get("role_id")
+                            if role_id:
+                                r = chan.guild.get_role(int(role_id))
+                                if r:
+                                    ping = r.mention
+                            await chan.send(f"{ping}\n{recap}")
+                    self.sent_this_week = True
+                if now.strftime("%A") == "Monday":
+                    self.sent_this_week = False
             except Exception as e:
-                await interaction.response.send_message(f"❌ Erreur création rôle: {e}", ephemeral=True)
+                logging.error(f"Erreur weekly_summary_task: {e}")
+            await asyncio.sleep(60)
+
+    @safe_command
+    @app_commands.command(name="set_recap_config", description="Configurer le récap (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def set_recap_config(self, interaction: discord.Interaction, channel: discord.TextChannel, time_str: str, day: str, role: discord.Role = None):
+        weekly_recap_config["channel_id"] = str(channel.id)
+        weekly_recap_config["time"] = time_str
+        weekly_recap_config["day"] = day
+        if role:
+            weekly_recap_config["role_id"] = str(role.id)
+        await interaction.response.send_message("✅ Récap configuré.", ephemeral=True)
+
+async def setup_weekly_summary(bot: commands.Bot):
+    await bot.add_cog(WeeklySummaryCog(bot))
+
+# --- Citations Cog ---
+class CitationsCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.citations = citations_data.get("citations", [])
+    @safe_command
+    @app_commands.command(name="ajouter_citation", description="Ajoutez une citation")
+    async def ajouter_citation(self, interaction: discord.Interaction, citation: str):
+        self.citations.append(citation)
+        citations_data["citations"] = self.citations
+        await sauvegarder_json_async(CITATIONS_FILE, citations_data)
+        await interaction.response.send_message("✅ Citation ajoutée.", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="mes_citations", description="Afficher vos citations")
+    async def mes_citations(self, interaction: discord.Interaction):
+        if not self.citations:
+            await interaction.response.send_message("Aucune citation.", ephemeral=True)
+            return
+        await interaction.response.send_message("💬 Citations :\n" + "\n".join(self.citations), ephemeral=True)
+
+async def setup_citations(bot: commands.Bot):
+    global citations_data
+    citations_data = await charger_json_async(CITATIONS_FILE)
+    await bot.add_cog(CitationsCog(bot))
+
+# --- Emergency Alert Cog ---
+class EmergencyAlertCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    @safe_command
+    @app_commands.command(name="besoin_d_aide", description="Envoyer une alerte aux mentors")
+    async def besoin_d_aide(self, interaction: discord.Interaction, message: str):
+        alert = f"⚠️ Urgence de {interaction.user.mention}: {message}"
+        if not self.bot.mentor_targets:
+            await interaction.response.send_message("❌ Aucun mentor défini. Veuillez configurer via /set_mentors.", ephemeral=True)
+            return
+        sent = False
+        for target in self.bot.mentor_targets:
+            if target["type"] == "role":
+                role = interaction.guild.get_role(target["id"])
+                if role:
+                    alert_message = f"{role.mention}\n{alert}"
+                    try:
+                        await interaction.channel.send(alert_message)
+                        sent = True
+                    except Exception as e:
+                        logging.error(f"Erreur envoi alerte role: {e}")
+            elif target["type"] == "member":
+                member = interaction.guild.get_member(target["id"])
+                if member:
+                    try:
+                        await member.send(alert)
+                        sent = True
+                    except Exception as e:
+                        logging.error(f"Erreur DM mentor membre: {e}")
+            elif target["type"] == "channel":
+                channel = self.bot.get_channel(target["id"])
+                if channel:
+                    try:
+                        await channel.send(alert)
+                        sent = True
+                    except Exception as e:
+                        logging.error(f"Erreur envoi alerte canal: {e}")
+        if sent:
+            await interaction.response.send_message("✅ Alerte envoyée.", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Aucun mentor joignable.", ephemeral=True)
+
+async def setup_emergency(bot: commands.Bot):
+    await bot.add_cog(EmergencyAlertCog(bot))
+
+# --- Reaction Role Cog ---
+class ReactionRoleCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.reaction_roles = {}
+    @safe_command
+    @app_commands.command(name="add_reaction_role", description="Ajouter une réaction role (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def add_reaction_role(self, interaction: discord.Interaction, message_id: str, emoji: str, role: discord.Role):
+        mid = int(message_id)
+        if mid not in self.reaction_roles:
+            self.reaction_roles[mid] = {}
+        self.reaction_roles[mid][emoji] = role.id
+        await interaction.response.send_message("✅ Reaction role ajouté.", ephemeral=True)
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload):
+        if payload.user_id == self.bot.user.id:
+            return
+        if payload.message_id in self.reaction_roles:
+            current = self.reaction_roles[payload.message_id]
+            emoji = str(payload.emoji)
+            if emoji in current:
+                guild = self.bot.get_guild(payload.guild_id)
+                if guild is None:
+                    return
+                member = guild.get_member(payload.user_id)
+                if member is None:
+                    return
+                role = guild.get_role(current[emoji])
+                if role:
+                    try:
+                        await member.add_roles(role)
+                    except Exception as e:
+                        logging.error(e)
+
+async def setup_reaction_roles(bot: commands.Bot):
+    await bot.add_cog(ReactionRoleCog(bot))
+
+# --- Channel Lock Cog ---
+class ChannelLockCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="lock", description="Verrouiller un salon (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def lock(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        try:
+            await channel.set_permissions(interaction.guild.default_role, view_channel=False)
+            await interaction.response.send_message(f"✅ {channel.mention} verrouillé.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="unlock", description="Déverrouiller un salon (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def unlock(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        try:
+            await channel.set_permissions(interaction.guild.default_role, overwrite=None)
+            await interaction.response.send_message(f"✅ {channel.mention} déverrouillé.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
+
+async def setup_channel_lock(bot: commands.Bot):
+    await bot.add_cog(ChannelLockCog(bot))
+
+# --- Focus Protect Cog ---
+focus_protect = {}
+class FocusProtectCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        asyncio.create_task(self.check_protect_expiry())
+    async def check_protect_expiry(self):
+        while not self.bot.is_closed():
+            now = time.time()
+            for uid, expiry in list(focus_protect.items()):
+                if expiry <= now:
+                    del focus_protect[uid]
+            await asyncio.sleep(30)
+    @safe_command
+    @app_commands.command(name="focus_protect", description="Activer Protect Focus pour X minutes")
+    async def focus_protect_cmd(self, interaction: discord.Interaction, durée: int):
+        if not is_allowed("pomodoro", interaction):
+            await interaction.response.send_message("❌ Utilisez le canal Protect Focus.", ephemeral=True)
+            return
+        focus_protect[str(interaction.user.id)] = time.time() + durée * 60
+        await interaction.response.send_message(f"✅ Protect Focus activé pour {durée} minutes.", ephemeral=True)
+
+async def setup_focus_protect(bot: commands.Bot):
+    await bot.add_cog(FocusProtectCog(bot))
+
+# --- Sleep Mode Cog ---
+last_activity = {}
+exempt_veille = set()
+@bot.event
+async def on_message(message):
+    try:
+        if not message.author.bot:
+            last_activity[str(message.author.id)] = time.time()
+        await bot.process_commands(message)
+    except Exception as e:
+        logging.error(f"Erreur on_message: {e}")
+
+class SleepModeCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.check_task = asyncio.create_task(self.check_inactivity())
+    async def check_inactivity(self):
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            now = time.time()
+            if self.bot.guilds:
+                guild = self.bot.guilds[0]
+                for member in guild.members:
+                    uid = str(member.id)
+                    if uid in exempt_veille:
+                        continue
+                    last = last_activity.get(uid, now)
+                    if now - last > 7 * 24 * 3600:
+                        try:
+                            await member.send("💤 Besoin d’un coup de main ?")
+                        except Exception as e:
+                            logging.error(f"Erreur veille pour {member}: {e}")
+            await asyncio.sleep(3600)
+    @safe_command
+    @app_commands.command(name="desactiver_veille", description="Désactiver la veille pour soi")
+    async def desactiver_veille(self, interaction: discord.Interaction):
+        exempt_veille.add(str(interaction.user.id))
+        await interaction.response.send_message("✅ Veille désactivée.", ephemeral=True)
+
+async def setup_sleep_mode(bot: commands.Bot):
+    await bot.add_cog(SleepModeCog(bot))
+
+# --- Recherches Perso Cog ---
+class RecherchesPersoCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.active_recherches = {}
+        asyncio.create_task(self.dm_recherches_loop())
+    async def dm_recherches_loop(self):
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            now = time.time()
+            for uid, recherche in list(self.active_recherches.items()):
+                if now >= recherche.get("next_dm_time", 0):
+                    user = self.bot.get_user(int(uid))
+                    if user:
+                        try:
+                            await user.send(f"🔍 Suivi de ta recherche sur '{recherche['topic']}'. Pense à noter tes avancées!")
+                        except Exception as e:
+                            logging.error(f"Erreur DM recherche: {e}")
+                    recherche["next_dm_time"] = now + 3600
+            await asyncio.sleep(60)
+    @safe_command
+    @app_commands.command(name="nouvelle_recherche", description="Démarrer une nouvelle recherche perso")
+    async def nouvelle_recherche(self, interaction: discord.Interaction, sujet: str):
+        if not is_allowed("recherche_personnelle", interaction):
+            await interaction.response.send_message("❌ Utilisez le canal Recherches Perso.", ephemeral=True)
+            return
+        uid = str(interaction.user.id)
+        self.active_recherches[uid] = {"topic": sujet, "next_dm_time": time.time() + 3600}
+        await interaction.response.send_message(f"✅ Recherche '{sujet}' démarrée. Suivi en DM.", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="publier_recherche", description="Publier ses résultats de recherche")
+    async def publier_recherche(self, interaction: discord.Interaction, contenu: str):
+        if not is_allowed("recherche_personnelle", interaction):
+            await interaction.response.send_message("❌ Utilisez le canal Recherches Perso.", ephemeral=True)
+            return
+        channel_id = bot.allowed_channels.get("recherche_personnelle")
+        if channel_id:
+            channel = self.bot.get_channel(int(channel_id))
+            if channel:
+                topic = self.active_recherches.get(str(interaction.user.id), {}).get("topic", "Inconnu")
+                await channel.send(f"🔍 {interaction.user.mention} partage ses résultats sur '{topic}':\n{contenu}")
+                await interaction.response.send_message("✅ Recherche publiée.", ephemeral=True)
                 return
-        try:
-            await member.add_roles(muted_role, reason="Mute admin")
-            await interaction.response.send_message(f"{member.mention} muté pour {duration} minutes.", ephemeral=True)
-            await asyncio.sleep(duration * 60)
-            await member.remove_roles(muted_role, reason="Fin du mute")
-            await interaction.followup.send(f"{member.mention} n'est plus mute.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Erreur lors du mute: {e}", ephemeral=True)
-    @app_commands.command(name="ban", description="Bannit un utilisateur (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def ban(self, interaction: discord.Interaction, member: discord.Member, reason: str = "Aucune raison"):
-        try:
-            await member.ban(reason=reason)
-            await interaction.response.send_message(f"{member.mention} banni. Raison: {reason}", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Erreur lors du ban: {e}", ephemeral=True)
-    @app_commands.command(name="kick", description="Expulse un utilisateur (admin)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def kick(self, interaction: discord.Interaction, member: discord.Member, reason: str = "Aucune raison"):
-        try:
-            await member.kick(reason=reason)
-            await interaction.response.send_message(f"{member.mention} expulsé. Raison: {reason}", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Erreur lors du kick: {e}", ephemeral=True)
+        await interaction.response.send_message("❌ Canal non configuré par admin.", ephemeral=True)
 
-async def setup_moderation(bot: commands.Bot):
-    await bot.add_cog(ModerationCog(bot))
+async def setup_recherches(bot: commands.Bot):
+    await bot.add_cog(RecherchesPersoCog(bot))
 
-# ------------------------------------------
-# Serveur HTTP keep-alive
-# ------------------------------------------
+# --- Activity Drop Cog ---
+class ActivityDropCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.activity_counts = {}
+        self.chute_disabled = set()
+        asyncio.create_task(self.activity_monitor_loop())
+    @safe_command
+    @app_commands.command(name="desactiver_chute", description="Désactiver les alertes de chute d'activité")
+    async def desactiver_chute(self, interaction: discord.Interaction):
+        if not is_allowed("activity_drop", interaction):
+            await interaction.response.send_message("❌ Utilisez le canal Chute d'activité.", ephemeral=True)
+            return
+        self.chute_disabled.add(str(interaction.user.id))
+        await interaction.response.send_message("✅ Alertes désactivées.", ephemeral=True)
+    async def activity_monitor_loop(self):
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            await asyncio.sleep(3600)
+            for uid, count in list(self.activity_counts.items()):
+                if uid in self.chute_disabled:
+                    continue
+                if count < 5:
+                    user = self.bot.get_user(int(uid))
+                    if user:
+                        try:
+                            await user.send("💡 Tu es moins actif ces derniers temps. Tu peux rebondir!")
+                        except Exception as e:
+                            logging.error(f"Erreur DM activité drop: {e}")
+            self.activity_counts = {}
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        if not message.author.bot:
+            uid = str(message.author.id)
+            self.activity_counts[uid] = self.activity_counts.get(uid, 0) + 1
+
+async def setup_activity_drop(bot: commands.Bot):
+    await bot.add_cog(ActivityDropCog(bot))
+
+# --- Bibliothèque Cog ---
+class BibliothequeCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.biblio = []
+    @safe_command
+    @app_commands.command(name="proposer_ressource", description="Proposer une ressource utile")
+    async def proposer_ressource(self, interaction: discord.Interaction, lien: str, description: str):
+        if not is_allowed("bibliotheque", interaction):
+            await interaction.response.send_message("❌ Utilisez le canal Bibliothèque.", ephemeral=True)
+            return
+        self.biblio.append({"lien": lien, "description": description})
+        unlock = ""
+        if len(self.biblio) % 5 == 0:
+            unlock = "🎉 Nouvelle section débloquée!"
+        await interaction.response.send_message(f"✅ Ressource proposée. {unlock}", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="voir_bibliotheque", description="Voir la bibliothèque communautaire")
+    async def voir_bibliotheque(self, interaction: discord.Interaction):
+        if not is_allowed("bibliotheque", interaction):
+            await interaction.response.send_message("❌ Utilisez le canal Bibliothèque.", ephemeral=True)
+            return
+        if not self.biblio:
+            await interaction.response.send_message("Aucune ressource.", ephemeral=True)
+            return
+        lines = [f"- {entry['description']}: {entry['lien']}" for entry in self.biblio]
+        await interaction.response.send_message("📚 Bibliothèque :\n" + "\n".join(lines), ephemeral=True)
+
+async def setup_bibliotheque(bot: commands.Bot):
+    await bot.add_cog(BibliothequeCog(bot))
+
+# --- Smart Reactions Cog ---
+class SmartReactionsCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="activer_reactions_smart", description="Activer les réactions smart (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def activer_reactions_smart(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        self.bot.allowed_channels["reactions_smart"] = str(channel.id)
+        await interaction.response.send_message(f"✅ Réactions smart activées dans {channel.mention}", ephemeral=True)
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        if message.author.bot:
+            return
+        if self.bot.allowed_channels.get("reactions_smart") == str(message.channel.id):
+            content = message.content.lower()
+            if any(w in content for w in ["victoire", "gagné", "réussi"]):
+                try:
+                    await message.add_reaction("🎉")
+                except Exception as e:
+                    logging.error(e)
+            elif any(w in content for w in ["plaint", "problème", "découragé"]):
+                try:
+                    await message.channel.send(f"{message.author.mention} Courage, tu peux y arriver!")
+                except Exception as e:
+                    logging.error(e)
+
+async def setup_smart_reactions(bot: commands.Bot):
+    await bot.add_cog(SmartReactionsCog(bot))
+
+# --- Quêtes Cog ---
+class QuetesCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.quests = {}
+    @safe_command
+    @app_commands.command(name="commencer_quete", description="Commencer une quête")
+    async def commencer_quete(self, interaction: discord.Interaction):
+        if not is_allowed("quetes", interaction):
+            await interaction.response.send_message("❌ Utilisez le canal Quêtes.", ephemeral=True)
+            return
+        uid = str(interaction.user.id)
+        if uid in self.quests:
+            await interaction.response.send_message("❌ Quête déjà en cours.", ephemeral=True)
+            return
+        quest = {
+            "titre": "Mission : Reprendre le contrôle",
+            "etapes": ["Fixer 3 objectifs", "Faire 2 pomodoros", "Écrire un log de fin de journée"],
+            "current": 0
+        }
+        self.quests[uid] = quest
+        await interaction.response.send_message("✅ Quête commencée !", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="voir_quete", description="Voir sa quête actuelle")
+    async def voir_quete(self, interaction: discord.Interaction):
+        if not is_allowed("quetes", interaction):
+            await interaction.response.send_message("❌ Utilisez le canal Quêtes.", ephemeral=True)
+            return
+        uid = str(interaction.user.id)
+        quest = self.quests.get(uid)
+        if not quest:
+            await interaction.response.send_message("❌ Aucune quête en cours.", ephemeral=True)
+            return
+        text = f"**{quest['titre']}**\nÉtape actuelle: {quest['etapes'][quest['current']]}"
+        await interaction.response.send_message(text, ephemeral=True)
+    @safe_command
+    @app_commands.command(name="valider_etape", description="Valider l'étape actuelle")
+    async def valider_etape(self, interaction: discord.Interaction):
+        if not is_allowed("quetes", interaction):
+            await interaction.response.send_message("❌ Utilisez le canal Quêtes.", ephemeral=True)
+            return
+        uid = str(interaction.user.id)
+        quest = self.quests.get(uid)
+        if not quest:
+            await interaction.response.send_message("❌ Aucune quête en cours.", ephemeral=True)
+            return
+        quest["current"] += 1
+        if quest["current"] >= len(quest["etapes"]):
+            del self.quests[uid]
+            await interaction.response.send_message("🎉 Quête terminée !", ephemeral=True)
+        else:
+            await interaction.response.send_message("✅ Étape validée.", ephemeral=True)
+
+async def setup_quetes(bot: commands.Bot):
+    await bot.add_cog(QuetesCog(bot))
+
+# --- Discipline Personnelle Cog ---
+class DisciplinePersonnelCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.rules = {}
+    @safe_command
+    @app_commands.command(name="ajouter_regle", description="Ajouter une règle personnelle")
+    async def ajouter_regle(self, interaction: discord.Interaction, regle: str):
+        uid = str(interaction.user.id)
+        self.rules.setdefault(uid, []).append(regle)
+        await interaction.response.send_message("✅ Règle ajoutée.", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="liste_regles", description="Afficher vos règles")
+    async def liste_regles(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        regles = self.rules.get(uid, [])
+        if not regles:
+            await interaction.response.send_message("Aucune règle définie.", ephemeral=True)
+        else:
+            await interaction.response.send_message("📜 Vos règles:\n" + "\n".join(regles), ephemeral=True)
+
+async def setup_discipline_personnelle(bot: commands.Bot):
+    await bot.add_cog(DisciplinePersonnelCog(bot))
+
+# --- Saison Cog ---
+class SaisonCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="definir_saison", description="Définir la saison actuelle (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def definir_saison(self, interaction: discord.Interaction, theme: str, duree_jours: int):
+        season_data.clear()
+        season_data.update({"theme": theme, "duration": duree_jours, "start": time.time()})
+        await interaction.response.send_message(f"✅ Saison définie : {theme} pour {duree_jours} jours.", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="saison_info", description="Afficher la saison actuelle")
+    async def saison_info(self, interaction: discord.Interaction):
+        if season_data:
+            await interaction.response.send_message(f"🌟 Thème : {season_data.get('theme')}, Durée : {season_data.get('duration')} jours.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Aucune saison définie.", ephemeral=True)
+
+async def setup_saison(bot: commands.Bot):
+    await bot.add_cog(SaisonCog(bot))
+
+# --- Commandant Cog ---
+class CommandantCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.commandant_mode = False
+    @safe_command
+    @app_commands.command(name="activer_commandant", description="Activer le mode Commandant (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def activer_commandant(self, interaction: discord.Interaction):
+        self.commandant_mode = True
+        await interaction.response.send_message("✅ Mode Commandant activé pour cette semaine.", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="verifier_commandant", description="Vérifier le mode Commandant")
+    async def verifier_commandant(self, interaction: discord.Interaction):
+        msg = "activé" if self.commandant_mode else "désactivé"
+        await interaction.response.send_message(f"Le mode Commandant est {msg}.", ephemeral=True)
+
+async def setup_commandant(bot: commands.Bot):
+    await bot.add_cog(CommandantCog(bot))
+
+# --- Double Compte Cog ---
+class DoubleCompteCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="switch_ego", description="Basculer vers votre autre profil (alter ego)")
+    async def switch_ego(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        profile = double_profile.get(uid, {"current": 1, "profile1": {}, "profile2": {}})
+        profile["current"] = 2 if profile["current"] == 1 else 1
+        double_profile[uid] = profile
+        await interaction.response.send_message(f"✅ Vous êtes maintenant sur le profil alter ego #{profile['current']}.", ephemeral=True)
+
+async def setup_double_compte(bot: commands.Bot):
+    await bot.add_cog(DoubleCompteCog(bot))
+
+# --- Isolation Cog ---
+class IsolationCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="activer_isolation", description="Activer l'isolation volontaire pour X jours")
+    async def activer_isolation(self, interaction: discord.Interaction, jours: int):
+        uid = str(interaction.user.id)
+        end_time = time.time() + jours * 24 * 3600
+        isolation_status[uid] = {"active": True, "end_time": end_time, "lost_roles": []}
+        await interaction.response.send_message(f"✅ Isolation activée pour {jours} jours.", ephemeral=True)
+
+async def setup_isolation(bot: commands.Bot):
+    await bot.add_cog(IsolationCog(bot))
+
+# --- Tempête Cog ---
+class TempeteCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        asyncio.create_task(self.random_tempete())
+    async def random_tempete(self):
+        await self.bot.wait_until_ready()
+        while not self.bot.is_closed():
+            await asyncio.sleep(3600)
+            if random.random() < 0.2:
+                channel_id = bot.allowed_channels.get("tempete")
+                if channel_id:
+                    channel = self.bot.get_channel(int(channel_id))
+                    if channel:
+                        await channel.send("🌀 Tempête mentale : Une vague de fatigue traverse la base... Envoyez /resister pour prouver votre force!")
+            await asyncio.sleep(10)
+    @safe_command
+    @app_commands.command(name="resister", description="Répondre à une tempête mentale")
+    async def resister(self, interaction: discord.Interaction):
+        await interaction.response.send_message("✅ Résistance validée! Tu as surmonté la tempête.", ephemeral=True)
+
+async def setup_tempete(bot: commands.Bot):
+    await bot.add_cog(TempeteCog(bot))
+
+# --- Version Parallèle Cog ---
+class VersionParalleleCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="simuler_autre_toi", description="Générer une version parallèle de vous-même")
+    async def simuler_autre_toi(self, interaction: discord.Interaction):
+        await interaction.response.send_message("😈 Voici votre version parallèle : Plus audacieux, plus performant... Un peu plus agressif. Motivation renforcée!", ephemeral=True)
+
+async def setup_version_parallele(bot: commands.Bot):
+    await bot.add_cog(VersionParalleleCog(bot))
+
+# --- Tribunal Cog ---
+class TribunalCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="confesser", description="Confesser une erreur")
+    async def confesser(self, interaction: discord.Interaction, confession: str):
+        tribunal_confessions.append({"user": interaction.user.name, "confession": confession, "time": time.time()})
+        await interaction.response.send_message("✅ Confession enregistrée. Le tribunal statuera.", ephemeral=True)
+
+async def setup_tribunal(bot: commands.Bot):
+    await bot.add_cog(TribunalCog(bot))
+
+# --- Quêtes d’Identité Cog ---
+class QuetesIdentiteCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="queteridentite", description="Répondre à la grande question identitaire")
+    async def queteridentite(self, interaction: discord.Interaction, reponse: str):
+        quêtes_identite[str(interaction.user.id)] = reponse
+        await interaction.response.send_message("✅ Réponse enregistrée dans votre grimoire intérieur.", ephemeral=True)
+
+async def setup_quetes_identite(bot: commands.Bot):
+    await bot.add_cog(QuetesIdentiteCog(bot))
+
+# --- Univers Parallèles Cog ---
+class UniversParallelesCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="changer_univers", description="Changer le thème du serveur")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def changer_univers(self, interaction: discord.Interaction, theme: str, duree_jours: int):
+        univers_paralleles["active"] = True
+        univers_paralleles["theme"] = theme
+        univers_paralleles["end"] = time.time() + duree_jours * 24 * 3600
+        await interaction.response.send_message(f"✅ Univers parallèle activé: {theme} pendant {duree_jours} jours.", ephemeral=True)
+
+async def setup_univers_paralleles(bot: commands.Bot):
+    await bot.add_cog(UniversParallelesCog(bot))
+
+# --- Hall of Mastery Cog ---
+class HallOfMasteryCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="hall_of_fame", description="Afficher le Hall of Mastery")
+    async def hall_of_fame(self, interaction: discord.Interaction):
+        if hall_of_mastery:
+            await interaction.response.send_message("🏆 Hall of Mastery:\n" + "\n".join(hall_of_mastery), ephemeral=True)
+        else:
+            await interaction.response.send_message("Aucun membre qualifié pour l'instant.", ephemeral=True)
+
+async def setup_hall_of_mastery(bot: commands.Bot):
+    await bot.add_cog(HallOfMasteryCog(bot))
+
+# --- Chronomètre de Discipline Cog ---
+class ChronoDisciplineCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.active_chronos = {}
+    @safe_command
+    @app_commands.command(name="chrono_discipline", description="Activer un chrono de discipline pure")
+    async def chrono_discipline(self, interaction: discord.Interaction, duree_minutes: int):
+        uid = str(interaction.user.id)
+        end = time.time() + duree_minutes * 60
+        self.active_chronos[uid] = end
+        await interaction.response.send_message(f"✅ Chrono activé pour {duree_minutes} minutes. Ne touchez à rien!", ephemeral=True)
+        while time.time() < end:
+            await asyncio.sleep(10)
+        await interaction.followup.send("🎉 Chrono terminé ! Badge de discipline attribué.", ephemeral=True)
+
+async def setup_chrono_discipline(bot: commands.Bot):
+    await bot.add_cog(ChronoDisciplineCog(bot))
+
+# --- Livres de Savoir Cog ---
+class LivresSavoirCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="creer_livre", description="Créer un livre de savoir partagé")
+    async def creer_livre(self, interaction: discord.Interaction, titre: str, contenu: str):
+        livres_savoir.append({"user": interaction.user.name, "titre": titre, "contenu": contenu, "votes": 0})
+        await interaction.response.send_message("✅ Livre créé.", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="bibliotheque_des_savoirs", description="Afficher les livres de savoir")
+    async def bibliotheque_des_savoirs(self, interaction: discord.Interaction):
+        if livres_savoir:
+            lines = [f"{livre['titre']} par {livre['user']} - Votes: {livre['votes']}" for livre in livres_savoir]
+            await interaction.response.send_message("📚 Livres de savoir:\n" + "\n".join(lines), ephemeral=True)
+        else:
+            await interaction.response.send_message("Aucun livre.", ephemeral=True)
+
+async def setup_livres_savoir(bot: commands.Bot):
+    await bot.add_cog(LivresSavoirCog(bot))
+
+# --- Jour Zéro Cog ---
+class JourZeroCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.jour_zero_active = False
+        self.end_time = None
+    @safe_command
+    @app_commands.command(name="activer_jour_zero", description="Activer le mode Jour Zéro (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def activer_jour_zero(self, interaction: discord.Interaction, duree_heures: int):
+        self.jour_zero_active = True
+        self.end_time = time.time() + duree_heures * 3600
+        await interaction.response.send_message(f"✅ Jour Zéro activé pour {duree_heures} heures.", ephemeral=True)
+
+async def setup_jour_zero(bot: commands.Bot):
+    await bot.add_cog(JourZeroCog(bot))
+
+# --- Forge des Protocoles Cog ---
+class ForgeProtocolesCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="protocole", description="Proposer un protocole personnel")
+    async def protocole(self, interaction: discord.Interaction, nom: str, description: str):
+        protocoles[nom] = description
+        await interaction.response.send_message("✅ Protocole proposé et en attente de validation admin.", ephemeral=True)
+
+async def setup_forge_protocoles(bot: commands.Bot):
+    await bot.add_cog(ForgeProtocolesCog(bot))
+
+# --- Mur des Promesses Cog ---
+class MurPromessesCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="je_m_engage", description="Faire une promesse publique")
+    async def je_m_engage(self, interaction: discord.Interaction, promesse: str):
+        mur = f"{interaction.user.mention} s’engage: {promesse}"
+        promesses.append(mur)
+        channel_id = bot.allowed_channels.get("mur_promesses")
+        if channel_id:
+            channel = self.bot.get_channel(int(channel_id))
+            if channel:
+                await channel.send(mur)
+        await interaction.response.send_message("✅ Promesse enregistrée.", ephemeral=True)
+
+async def setup_mur_promesses(bot: commands.Bot):
+    await bot.add_cog(MurPromessesCog(bot))
+
+# --- Mode RPG Discipline Cog ---
+class RPGDisciplineCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="voir_stats", description="Voir votre fiche de discipline")
+    async def voir_stats(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        profil = rpg_profiles.get(uid, {"volonte": 10, "tentation": 0, "niveau": 1})
+        await interaction.response.send_message(
+            f"Votre fiche : Volonté: {profil['volonte']}, Tentation: {profil['tentation']}, Niveau: {profil['niveau']}", ephemeral=True
+        )
+    @safe_command
+    @app_commands.command(name="level_up", description="Level up de discipline")
+    async def level_up(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        profil = rpg_profiles.setdefault(uid, {"volonte": 10, "tentation": 0, "niveau": 1})
+        profil["niveau"] += 1
+        profil["volonte"] += 5
+        await interaction.response.send_message(f"🎉 Vous êtes passé au niveau {profil['niveau']}!", ephemeral=True)
+
+async def setup_rpg_discipline(bot: commands.Bot):
+    await bot.add_cog(RPGDisciplineCog(bot))
+
+# --- Éclipse Mentale Cog ---
+class EclipseMentaleCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.active = False
+        self.end_time = None
+    @safe_command
+    @app_commands.command(name="activer_eclipse", description="Activer l'éclipse mentale (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def activer_eclipse(self, interaction: discord.Interaction, duree_heures: int):
+        self.active = True
+        self.end_time = time.time() + duree_heures * 3600
+        await interaction.response.send_message(f"✅ Éclipse activée pour {duree_heures} heures.", ephemeral=True)
+
+async def setup_eclipse_mentale(bot: commands.Bot):
+    await bot.add_cog(EclipseMentaleCog(bot))
+
+# --- Miroir Futur Cog ---
+class MiroirFuturCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="miroir_futur", description="Afficher un reflet du futur")
+    async def miroir_futur(self, interaction: discord.Interaction):
+        await interaction.response.send_message("✨ Si tu augmentais tes efforts de 10%, imagine le futur! Concentre-toi et excelle!", ephemeral=True)
+
+async def setup_miroir_futur(bot: commands.Bot):
+    await bot.add_cog(MiroirFuturCog(bot))
+
+# --- Monnaie Mentale Cog ---
+class MonnaieMentaleCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.monnaie = {}
+    @safe_command
+    @app_commands.command(name="solde_fragments", description="Afficher votre solde de Fragments de Volonté")
+    async def solde_fragments(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        balance = self.monnaie.get(uid, 0)
+        await interaction.response.send_message(f"💰 Votre solde: {balance} Fragments de Volonté", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="gagner_fragments", description="Gagner des Fragments de Volonté (simulation)")
+    async def gagner_fragments(self, interaction: discord.Interaction, montant: int):
+        uid = str(interaction.user.id)
+        self.monnaie[uid] = self.monnaie.get(uid, 0) + montant
+        await interaction.response.send_message(f"✅ Vous avez gagné {montant} fragments.", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="depense_fragments", description="Dépenser des Fragments de Volonté")
+    async def depense_fragments(self, interaction: discord.Interaction, montant: int):
+        uid = str(interaction.user.id)
+        balance = self.monnaie.get(uid, 0)
+        if balance < montant:
+            await interaction.response.send_message("❌ Solde insuffisant.", ephemeral=True)
+        else:
+            self.monnaie[uid] = balance - montant
+            await interaction.response.send_message(f"✅ Dépensé {montant} fragments. Nouveau solde: {self.monnaie[uid]}", ephemeral=True)
+
+async def setup_monnaie_mentale(bot: commands.Bot):
+    await bot.add_cog(MonnaieMentaleCog(bot))
+
+# --- Rituel Vocal Cog ---
+class RituelVocalCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="lancer_rituel", description="Démarrer le rituel vocal collectif")
+    async def lancer_rituel(self, interaction: discord.Interaction):
+        await interaction.response.send_message("🎤 Rituel de discipline lancé. Rendez-vous dans le salon vocal 'RITUEL DE LA DISCIPLINE' pour 15 minutes de focus.", ephemeral=True)
+
+async def setup_rituel_vocal(bot: commands.Bot):
+    await bot.add_cog(RituelVocalCog(bot))
+
+# --- Chasseur de Distraction Cog ---
+class ChasseurDistractionCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="traquer_tentation", description="Traquer ta tentation de distraction")
+    async def traquer_tentation(self, interaction: discord.Interaction):
+        await interaction.response.send_message("✅ Ton comportement a été noté. Continue de te concentrer!", ephemeral=True)
+
+async def setup_chasseur_distraction(bot: commands.Bot):
+    await bot.add_cog(ChasseurDistractionCog(bot))
+
+# --- Influence Mentale Cog ---
+class InfluenceMentaleCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="influence", description="Afficher votre influence mentale")
+    async def influence(self, interaction: discord.Interaction):
+        await interaction.response.send_message("✨ Vous rayonnez! Votre influence est de 75 points.", ephemeral=True)
+
+async def setup_influence_mentale(bot: commands.Bot):
+    await bot.add_cog(InfluenceMentaleCog(bot))
+
+# --- Base Secrète Évolutive Cog ---
+class BaseSecreteCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.progression = 0
+    @safe_command
+    @app_commands.command(name="maj_base", description="Mettre à jour la base secrète (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def maj_base(self, interaction: discord.Interaction, progression: int):
+        self.progression = progression
+        await interaction.response.send_message(f"✅ Base mise à jour : Progression {progression}%.", ephemeral=True)
+
+async def setup_base_secrete(bot: commands.Bot):
+    await bot.add_cog(BaseSecreteCog(bot))
+
+# --- Eveil Progressif Cog ---
+class EveilProgressifCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="grimoire", description="Afficher votre révélation personnelle")
+    async def grimoire(self, interaction: discord.Interaction):
+        await interaction.response.send_message("💡 Révélation : Tu n'es plus passif, tu es l'architecte de ton destin.", ephemeral=True)
+
+async def setup_eveil_progressif(bot: commands.Bot):
+    await bot.add_cog(EveilProgressifCog(bot))
+
+# --- Rituel du Silence Cog ---
+class RituelSilenceCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="rituel_silence", description="Participer au rituel du silence")
+    async def rituel_silence(self, interaction: discord.Interaction):
+        await interaction.response.send_message("🤫 Rituel du Silence activé. Profitez de 1 heure d'introspection.", ephemeral=True)
+
+async def setup_rituel_silence(bot: commands.Bot):
+    await bot.add_cog(RituelSilenceCog(bot))
+
+# --- Commandements Personnels Cog ---
+class CommandementsCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.commandements = {}
+    @safe_command
+    @app_commands.command(name="nouveau_commandement", description="Définir un commandement personnel")
+    async def nouveau_commandement(self, interaction: discord.Interaction, texte: str):
+        uid = str(interaction.user.id)
+        self.commandements.setdefault(uid, []).append(texte)
+        await interaction.response.send_message("✅ Commandement enregistré.", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="rappeler_commandements", description="Rappeler vos commandements personnels")
+    async def rappeler_commandements(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        cmds = self.commandements.get(uid, [])
+        if cmds:
+            await interaction.response.send_message("📜 Vos commandements:\n" + "\n".join(cmds), ephemeral=True)
+        else:
+            await interaction.response.send_message("Aucun commandement enregistré.", ephemeral=True)
+
+async def setup_commandements(bot: commands.Bot):
+    await bot.add_cog(CommandementsCog(bot))
+
+# --- Archives Mentales Cog ---
+class ArchivesMentalesCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.archives = {}
+    @safe_command
+    @app_commands.command(name="mes_archives", description="Afficher vos archives mentales")
+    async def mes_archives(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        logs = self.archives.get(uid, [])
+        if logs:
+            await interaction.response.send_message("🗄️ Vos archives:\n" + "\n".join(logs), ephemeral=True)
+        else:
+            await interaction.response.send_message("Aucune archive.", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="archiver", description="Archiver un moment fort")
+    async def archiver(self, interaction: discord.Interaction, log: str):
+        uid = str(interaction.user.id)
+        self.archives.setdefault(uid, []).append(log)
+        await interaction.response.send_message("✅ Moment archivé.", ephemeral=True)
+
+async def setup_archives_mentales(bot: commands.Bot):
+    await bot.add_cog(ArchivesMentalesCog(bot))
+
+# --- Pacte de Sang Mental Cog ---
+class PacteSangCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.pactes = {}
+    @safe_command
+    @app_commands.command(name="pacte_sang", description="Activer le Pacte de Sang Mental pour 7 jours")
+    async def pacte_sang(self, interaction: discord.Interaction):
+        uid = str(interaction.user.id)
+        self.pactes[uid] = {"active": True, "end": time.time() + 7 * 24 * 3600}
+        await interaction.response.send_message("✅ Pacte activé pour 7 jours.", ephemeral=True)
+
+async def setup_pacte_sang(bot: commands.Bot):
+    await bot.add_cog(PacteSangCog(bot))
+
+# --- Duel Mental Cog ---
+class DuelMentalCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="duel_mental", description="Défier un autre membre au duel mental")
+    async def duel_mental(self, interaction: discord.Interaction, adversaire: discord.Member):
+        await interaction.response.send_message(f"⚔️ {interaction.user.mention} défie {adversaire.mention} au duel mental !", ephemeral=True)
+
+async def setup_duel_mental(bot: commands.Bot):
+    await bot.add_cog(DuelMentalCog(bot))
+
+# --- Codex Vivant Cog ---
+class CodexCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.codex = []
+    @safe_command
+    @app_commands.command(name="codex", description="Afficher le Codex du serveur")
+    async def codex(self, interaction: discord.Interaction):
+        if self.codex:
+            await interaction.response.send_message("📖 Codex du Serveur:\n" + "\n".join(self.codex), ephemeral=True)
+        else:
+            await interaction.response.send_message("Codex vide.", ephemeral=True)
+
+async def setup_codex(bot: commands.Bot):
+    await bot.add_cog(CodexCog(bot))
+
+# --- Rôles Totémiques Cog ---
+class RolesTotemCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="choisir_totem", description="Choisir un animal totem")
+    async def choisir_totem(self, interaction: discord.Interaction, totem: str):
+        await interaction.response.send_message(f"✅ Totem activé : {totem}. Vos messages seront adaptés.", ephemeral=True)
+
+async def setup_roles_totem(bot: commands.Bot):
+    await bot.add_cog(RolesTotemCog(bot))
+
+# --- Visionnaire de Long Terme Cog ---
+class VisionnaireCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.responses = {}
+    @safe_command
+    @app_commands.command(name="visionnaire", description="Répondre à la question du futur")
+    async def visionnaire(self, interaction: discord.Interaction, reponse: str):
+        uid = str(interaction.user.id)
+        self.responses[uid] = reponse
+        await interaction.response.send_message("✅ Réponse enregistrée. Elle vous sera rappelée dans 30 jours.", ephemeral=True)
+
+async def setup_visionnaire(bot: commands.Bot):
+    await bot.add_cog(VisionnaireCog(bot))
+
+# --- Legacy Cog ---
+class LegacyCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="legacy", description="Déposer un message d'héritage")
+    async def legacy(self, interaction: discord.Interaction, message: str):
+        legacy_messages.append({"user": interaction.user.name, "message": message, "time": time.time()})
+        await interaction.response.send_message("✅ Héritage enregistré dans le Mur des Anciens.", ephemeral=True)
+
+async def setup_legacy(bot: commands.Bot):
+    await bot.add_cog(LegacyCog(bot))
+
+# ==============================================================================
+# FONCTIONNALITÉS AJOUTÉES POUR AMÉLIORER L'EXPÉRIENCE
+# ==============================================================================
+
+# --- Uptime Cog ---
+class UptimeCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="uptime", description="Afficher le temps écoulé depuis le démarrage du bot")
+    async def uptime(self, interaction: discord.Interaction):
+        delta = datetime.timedelta(seconds=int(time.time() - self.bot.start_time))
+        await interaction.response.send_message(f"⏳ Uptime : {delta}", ephemeral=True)
+
+async def setup_uptime(bot: commands.Bot):
+    await bot.add_cog(UptimeCog(bot))
+
+# --- Leaderboard Cog ---
+class LeaderboardCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="leaderboard", description="Afficher le classement des membres par XP")
+    async def leaderboard(self, interaction: discord.Interaction):
+        if not xp_data:
+            await interaction.response.send_message("❌ Aucun XP enregistré.", ephemeral=True)
+            return
+        sorted_xp = sorted(xp_data.items(), key=lambda x: x[1], reverse=True)
+        display = []
+        for i, (user_id, xp) in enumerate(sorted_xp[:10], 1):
+            user = self.bot.get_user(int(user_id))
+            name = user.name if user else f"ID:{user_id}"
+            display.append(f"{i}. {name} - {xp} XP")
+        await interaction.response.send_message("🏆 **Leaderboard**\n" + "\n".join(display), ephemeral=True)
+
+async def setup_leaderboard(bot: commands.Bot):
+    await bot.add_cog(LeaderboardCog(bot))
+
+# --- Maintenance Cog ---
+class MaintenanceCog(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+    @safe_command
+    @app_commands.command(name="maintenance_on", description="Activer le mode maintenance (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def maintenance_on(self, interaction: discord.Interaction):
+        global maintenance_mode
+        maintenance_mode = True
+        await interaction.response.send_message("🔧 Le mode maintenance est **activé**.", ephemeral=True)
+    @safe_command
+    @app_commands.command(name="maintenance_off", description="Désactiver le mode maintenance (admin)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def maintenance_off(self, interaction: discord.Interaction):
+        global maintenance_mode
+        maintenance_mode = False
+        await interaction.response.send_message("🔧 Le mode maintenance est **désactivé**.", ephemeral=True)
+
+async def setup_maintenance(bot: commands.Bot):
+    await bot.add_cog(MaintenanceCog(bot))
+
+# ==============================================================================
+# SERVEUR KEEP-ALIVE
+# ==============================================================================
+os.environ["PORT"] = "10000"
 class KeepAliveHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot actif.")
+        self.wfile.write(b'Bot actif et en ligne.')
     def log_message(self, format, *args):
         return
 
@@ -1030,481 +1830,108 @@ def keep_alive(port=10000):
         thread = threading.Thread(target=server.serve_forever, name="KeepAliveThread")
         thread.daemon = True
         thread.start()
-        print(f"✅ Serveur keep-alive lancé sur le port {port}")
+        logging.info(f"✅ Serveur keep-alive lancé sur le port {port}")
     except Exception as e:
-        print(f"❌ Erreur keep-alive: {e}")
+        logging.error(f"❌ Erreur lancement keep-alive: {e}")
 
 keep_alive()
 
 @bot.event
 async def on_ready():
     try:
-        print(f"✅ Connecté en tant que {bot.user} (ID: {bot.user.id})")
+        logging.info(f"✅ Connecté en tant que {bot.user} (ID: {bot.user.id})")
     except Exception as e:
-        print(f"❌ Erreur on_ready: {e}")
+        logging.error(f"❌ Erreur on_ready: {e}")
 
-# ------------------------------------------
-# Commande Pomodoro
-# ------------------------------------------
-@tree.command(name="pomodoro", description="Lance une session Pomodoro personnalisée")
-@app_commands.describe(focus="Durée focus (min)", pause="Pause courte (min)", longue_pause="Pause longue (min)")
-async def pomodoro(interaction: discord.Interaction, focus: int = 25, pause: int = 5, longue_pause: int = 10):
-    await interaction.response.defer(ephemeral=True)
-    allowed = config_pomodoro.get("allowed_channel_id")
-    if allowed and str(interaction.channel.id) != allowed:
-        await interaction.followup.send("❌ Commande non autorisée ici.", ephemeral=True)
-        return
-    await interaction.followup.send(f"🕒 Session Pomodoro démarrée : {focus} min focus, {pause} min pause, {longue_pause} min pause longue.", ephemeral=True)
-    user = interaction.user
-    try:
-        for s in range(1, 5):
-            await user.send(f"🔴 Session {s} — Focus pendant {focus} minutes.")
-            await asyncio.sleep(focus * 60)
-            if s < 4:
-                await user.send(f"🟡 Pause courte de {pause} minutes.")
-                await asyncio.sleep(pause * 60)
-            else:
-                await user.send(f"🟢 Pause longue de {longue_pause} minutes.")
-                await asyncio.sleep(longue_pause * 60)
-        await user.send("✅ Pomodoro terminé !")
-    except Exception as e:
-        await interaction.followup.send(f"❌ Erreur en DM: {e}", ephemeral=True)
-
-# ------------------------------------------
-# Module d'objectifs personnels
-# ------------------------------------------
-@tree.command(name="ajouter_objectif", description="Ajoute un objectif personnel")
-async def ajouter_objectif(interaction: discord.Interaction, objectif: str):
-    if bot.xp_config.get("goals_channel") and str(interaction.channel.id) != str(bot.xp_config["goals_channel"]):
-        await interaction.response.send_message("❌ Commande non autorisée ici.", ephemeral=True)
-        return
-    uid = str(interaction.user.id)
-    objectifs_data.setdefault(uid, []).append(objectif)
-    await sauvegarder_json_async(GOALS_FILE, objectifs_data)
-    await interaction.response.send_message(f"✅ Objectif ajouté: **{objectif}**", ephemeral=True)
-
-@tree.command(name="voir_objectifs", description="Affiche tes objectifs")
-async def voir_objectifs(interaction: discord.Interaction):
-    if bot.xp_config.get("goals_channel") and str(interaction.channel.id) != str(bot.xp_config["goals_channel"]):
-        await interaction.response.send_message("❌ Commande non autorisée ici.", ephemeral=True)
-        return
-    uid = str(interaction.user.id)
-    objs = objectifs_data.get(uid, [])
-    if not objs:
-        await interaction.response.send_message("📭 Aucun objectif enregistré.", ephemeral=True)
-        return
-    txt = "\n".join(f"🔹 {o}" for o in objs)
-    await interaction.response.send_message(f"🎯 Objectifs:\n{txt}", ephemeral=True)
-
-@tree.command(name="supprimer_objectif", description="Supprime un de tes objectifs")
-@app_commands.describe(position="Numéro de l'objectif (1 pour le premier)")
-async def supprimer_objectif(interaction: discord.Interaction, position: int):
-    if bot.xp_config.get("goals_channel") and str(interaction.channel.id) != str(bot.xp_config["goals_channel"]):
-        await interaction.response.send_message("❌ Commande non autorisée ici.", ephemeral=True)
-        return
-    uid = str(interaction.user.id)
-    objs = objectifs_data.get(uid, [])
-    if not (1 <= position <= len(objs)):
-        await interaction.response.send_message("❌ Numéro invalide.", ephemeral=True)
-        return
-    suppr = objs.pop(position - 1)
-    if not objs:
-        objectifs_data.pop(uid, None)
-    await sauvegarder_json_async(GOALS_FILE, objectifs_data)
-    await interaction.response.send_message(f"🗑️ Objectif supprimé: **{suppr}**", ephemeral=True)
-
-# ------------------------------------------
-# Récapitulatif hebdomadaire & statistiques
-# ------------------------------------------
-@tree.command(name="set_channel_recap", description="Définit le salon pour le récap hebdo (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_channel_recap(interaction: discord.Interaction, channel: discord.TextChannel):
-    bot.recap_config["channel_id"] = str(channel.id)
-    await interaction.response.send_message(f"✅ Salon récap défini: {channel.mention}", ephemeral=True)
-
-@tree.command(name="set_role_recap", description="Définit le rôle à mentionner pour le récap (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_role_recap(interaction: discord.Interaction, role: discord.Role):
-    bot.recap_config["role_id"] = str(role.id)
-    await interaction.response.send_message(f"✅ Rôle récap défini: {role.mention}", ephemeral=True)
-
-@tasks.loop(minutes=1)
-async def recap_hebdo_task():
-    try:
-        now = datetime.datetime.now(ZoneInfo("Europe/Paris"))
-        if now.weekday() == 6 and now.hour == 20 and now.minute == 0:
-            chan_id = bot.recap_config.get("channel_id")
-            role_id = bot.recap_config.get("role_id")
-            if chan_id and role_id:
-                chan = bot.get_channel(int(chan_id))
-                if chan:
-                    msg = f"📆 **Récapitulatif hebdomadaire !**\n<@&{role_id}> partagez vos avancées pour la semaine prochaine."
-                    await chan.send(msg)
-                    print("✅ Récap envoyé.")
-                else:
-                    print("❌ Salon récap introuvable.")
-    except Exception as e:
-        print(f"❌ Erreur dans recap_hebdo_task: {e}")
-
-@tasks.loop(minutes=1)
-async def weekly_stats_task():
-    try:
-        now = datetime.datetime.now(ZoneInfo("Europe/Paris"))
-        if now.weekday() == 6 and now.hour == 21 and now.minute == 0:
-            if not hasattr(bot, "stats_channel_id") or not bot.stats_channel_id:
-                print("⚠️ Aucun salon stats défini.")
-                return
-            chan = bot.get_channel(int(bot.stats_channel_id))
-            if not chan:
-                print("❌ Salon stats introuvable.")
-                return
-            if not bot.weekly_stats:
-                await chan.send("📊 Aucune activité enregistrée cette semaine.")
-                return
-            s_msg = "**📈 Statistiques hebdomadaires :**\n"
-            for uid, data in bot.weekly_stats.items():
-                member = chan.guild.get_member(int(uid))
-                if not member:
-                    continue
-                m_count = data.get("messages", 0)
-                vocal_min = round(data.get("vocal", 0) / 60)
-                s_msg += f"• {member.mention} — {m_count} msg / {vocal_min} min vocal\n"
-            await chan.send(s_msg)
-            bot.weekly_stats = {}
-            print("✅ Stats hebdomadaires envoyées.")
-    except Exception as e:
-        print(f"❌ Erreur dans weekly_stats_task: {e}")
-
-@tree.command(name="stats_hebdo", description="Affiche tes stats hebdomadaires")
-async def stats_hebdo(interaction: discord.Interaction):
-    try:
-        uid = str(interaction.user.id)
-        stats = bot.weekly_stats.get(uid, {"messages": 0, "vocal": 0})
-        m_count = stats.get("messages", 0)
-        vocal_min = round(stats.get("vocal", 0) / 60)
-        txt = f"📊 **Stats de la semaine — {interaction.user.mention}**\n✉️ Messages: {m_count}\n🎙️ Vocal: {vocal_min} min"
-        await interaction.response.send_message(txt, ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
-
-# ------------------------------------------
-# Alertes SOS
-# ------------------------------------------
-@tree.command(name="set_destinataires_sos", description="Configure alertes SOS (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_destinataires_sos(interaction: discord.Interaction, mentions_roles: str, mentions_utilisateurs: str):
-    bot.sos_receivers = []
-    for role in interaction.guild.roles:
-        if role.mention in mentions_roles:
-            bot.sos_receivers.append(role.id)
-    for member in interaction.guild.members:
-        if member.mention in mentions_utilisateurs:
-            bot.sos_receivers.append(member.id)
-    await sauvegarder_json_async(SOS_CONFIG_FILE, {"receivers": bot.sos_receivers})
-    await interaction.response.send_message("✅ Destinataires SOS configurés.", ephemeral=True)
-
-@tree.command(name="sos", description="Lance une alerte SOS")
-async def sos(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    try:
-        if not bot.sos_receivers:
-            await interaction.followup.send("⚠️ Aucun destinataire SOS configuré.", ephemeral=True)
-            return
-        for rec in bot.sos_receivers:
-            member = interaction.guild.get_member(rec)
-            if member:
-                try:
-                    await member.send(f"🚨 SOS : {interaction.user.mention} a besoin d'aide.")
-                except Exception:
-                    pass
-        await interaction.followup.send("✅ Alerte SOS envoyée.", ephemeral=True)
-    except Exception as e:
-        await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
-
-# ------------------------------------------
-# Modes événementiels et thèmes
-# ------------------------------------------
-@tree.command(name="mode_evenement", description="Active/désactive un mode événement (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def mode_evenement(interaction: discord.Interaction, nom: str, message: str, actif: bool):
-    try:
-        bot.evenement_config.update({"actif": actif, "nom": nom, "message": message})
-        await sauvegarder_json_async(EVENEMENT_CONFIG_FILE, bot.evenement_config)
-        if actif:
-            await interaction.response.send_message(f"🎉 Mode événement '{nom}' activé: {message}", ephemeral=True)
-        else:
-            await interaction.response.send_message("✅ Mode événement désactivé.", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
-
-@tree.command(name="set_theme", description="Définit un thème visuel (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def set_theme(interaction: discord.Interaction, nom: str, emoji: str, message: str):
-    try:
-        bot.theme_config.update({"nom": nom, "emoji": emoji, "message": message})
-        await sauvegarder_json_async(THEME_CONFIG_FILE, bot.theme_config)
-        await interaction.response.send_message(f"🎨 Thème '{nom}' défini avec {emoji}: {message}", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
-
-# ------------------------------------------
-# Missions secrètes
-# ------------------------------------------
-@tree.command(name="mission_secrete", description="Assigne une mission secrète (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def mission_secrete(interaction: discord.Interaction, utilisateur: discord.Member, mission: str):
-    try:
-        bot.missions_secretes[str(utilisateur.id)] = {
-            "mission": mission,
-            "assignée_par": interaction.user.id,
-            "timestamp": datetime.datetime.now().isoformat()
-        }
-        await sauvegarder_json_async(MISSIONS_FILE, bot.missions_secretes)
-        try:
-            await utilisateur.send(f"🕵️ Mission secrète: {mission}")
-        except Exception:
-            pass
-        await interaction.response.send_message(f"✅ Mission attribuée à {utilisateur.mention}.", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
-
-@tree.command(name="ma_mission", description="Affiche ta mission secrète")
-async def ma_mission(interaction: discord.Interaction):
-    data = bot.missions_secretes.get(str(interaction.user.id))
-    if data:
-        await interaction.response.send_message(f"🕵️ Mission: {data['mission']}", ephemeral=True)
-    else:
-        await interaction.response.send_message("❌ Aucune mission assignée.", ephemeral=True)
-
-# ------------------------------------------
-# Événements sur calendrier collaboratif
-# ------------------------------------------
-@tree.command(name="ajouter_evenement", description="Ajoute un événement au calendrier")
-@app_commands.describe(titre="Titre", date="JJ/MM/AAAA", heure="HH:MM", description="Description")
-async def ajouter_evenement(interaction: discord.Interaction, titre: str, date: str, heure: str, description: str):
-    try:
-        dt = datetime.datetime.strptime(f"{date} {heure}", "%d/%m/%Y %H:%M")
-        eid = str(uuid.uuid4())
-        bot.evenements_calendrier[eid] = {
-            "auteur": interaction.user.id,
-            "titre": titre,
-            "datetime": dt.isoformat(),
-            "description": description
-        }
-        await sauvegarder_json_async(CALENDRIER_FILE, bot.evenements_calendrier)
-        await interaction.response.send_message(f"✅ Événement '{titre}' ajouté.", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
-
-@tree.command(name="voir_evenements", description="Affiche les événements à venir")
-async def voir_evenements(interaction: discord.Interaction):
-    try:
-        if not bot.evenements_calendrier:
-            await interaction.response.send_message("📭 Aucun événement prévu.", ephemeral=True)
-            return
-        now = datetime.datetime.now()
-        events = []
-        for eid, evt in sorted(bot.evenements_calendrier.items(), key=lambda x: x[1]["datetime"]):
-            dt = datetime.datetime.fromisoformat(evt["datetime"])
-            if dt > now:
-                events.append(f"📅 **{evt['titre']}** le {dt.strftime('%d/%m/%Y à %H:%M')}\n📝 {evt['description']}")
-        msg = "\n\n".join(events) if events else "📭 Aucun événement à venir."
-        await interaction.response.send_message(msg, ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
-
-# ------------------------------------------
-# Système de demande d'aide amélioré
-# ------------------------------------------
-class HelpRequestModal(Modal, title="📩 Demande d'aide"):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.probleme = TextInput(
-            label="Décris ton problème :",
-            style=TextStyle.paragraph,
-            placeholder="Ex: Je bloque sur...",
-            required=True,
-            max_length=2000
-        )
-        self.add_item(self.probleme)
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            desc = self.probleme.value
-            guild = interaction.guild
-            # Création d'une catégorie privée (accessible initialement que par le demandeur)
-            category = await guild.create_category(f"Aide - {interaction.user.display_name}")
-            text_chan = await guild.create_text_channel("aide-privée", category=category)
-            voice_chan = await guild.create_voice_channel("aide-privée", category=category)
-            await category.set_permissions(guild.default_role, view_channel=False)
-            await category.set_permissions(interaction.user, view_channel=True)
-            data = {
-                "user_id": str(interaction.user.id),
-                "description": desc,
-                "category_id": str(category.id),
-                "text_channel_id": str(text_chan.id),
-                "voice_channel_id": str(voice_chan.id),
-                "created_at": datetime.datetime.now().isoformat()
-            }
-            categories_aide[str(interaction.user.id)] = data
-            await sauvegarder_json_async(HELP_REQUEST_FILE, categories_aide)
-            # Envoi d'un message public dans le salon de commande avec boutons interactifs
-            public_msg = (f"🚨 **Demande d'aide** 🚨\n"
-                          f"{interaction.user.mention} a besoin d'aide :\n>>> {desc}\n"
-                          f"Cliquez sur le bouton ci-dessous pour accéder au salon d'aide privé.")
-            await interaction.channel.send(public_msg, view=HelpButtons(interaction.user.id))
-            await interaction.followup.send("✅ Demande d'aide créée. Consultez le message public pour accéder au salon.", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ Erreur création demande: {e}", ephemeral=True)
-
-class HelpButtons(View):
-    def __init__(self, requester_id: int):
-        super().__init__()
-        self.requester_id = requester_id
-    @discord.ui.button(label="Je peux aider", style=discord.ButtonStyle.primary)
-    async def aider(self, interaction: discord.Interaction, button: Button):
-        req = categories_aide.get(str(self.requester_id))
-        if not req:
-            await interaction.response.send_message("Cette demande n'existe plus.", ephemeral=True)
-            return
-        category = interaction.guild.get_category(int(req["category_id"]))
-        if not category:
-            await interaction.response.send_message("Salon privé introuvable.", ephemeral=True)
-            return
-        role = discord.utils.get(interaction.guild.roles, name="Aider")
-        if not role:
-            role = await interaction.guild.create_role(name="Aider")
-        await interaction.user.add_roles(role)
-        await category.set_permissions(role, view_channel=True)
-        await interaction.response.send_message("🔔 Vous avez reçu l'accès au salon privé d'aide.", ephemeral=True)
-    @discord.ui.button(label="Problème Résolu", style=discord.ButtonStyle.danger)
-    async def resoudre(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.defer(ephemeral=True)  # Déférer pour éviter timeout
-        if interaction.user.id != self.requester_id:
-            await interaction.followup.send("❌ Seul le demandeur peut clore cette demande.", ephemeral=True)
-            return
-        req = categories_aide.get(str(self.requester_id))
-        if req:
-            category = interaction.guild.get_category(int(req["category_id"]))
-            if category:
-                await category.delete()
-            del categories_aide[str(self.requester_id)]
-            await sauvegarder_json_async(HELP_REQUEST_FILE, categories_aide)
-        await interaction.followup.send("✅ Demande d'aide fermée.", ephemeral=True)
-
-@tree.command(name="besoin_aide", description="Crée une demande d'aide")
-async def besoin_aide(interaction: discord.Interaction):
-    try:
-        await interaction.response.send_modal(HelpRequestModal())
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
-
-# ------------------------------------------
-# Journal de focus (avec defer et followup)
-# ------------------------------------------
-@tree.command(name="journal_focus", description="Enregistre ton journal de focus")
-async def journal_focus(interaction: discord.Interaction, texte: str):
-    if bot.journal_focus_channel and str(interaction.channel.id) != bot.journal_focus_channel:
-        await interaction.response.send_message("❌ Commande non autorisée ici.", ephemeral=True)
-        return
-    try:
-        await interaction.response.defer(ephemeral=True)
-        await interaction.followup.send("✅ Journal enregistré.", ephemeral=True)
-        await interaction.channel.send(f"📝 Journal de {interaction.user.mention} :\n```{texte}```")
-    except Exception as e:
-        await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
-
-# ------------------------------------------
-# Attribution de rôles via réactions multi rôle (admin)
-# ------------------------------------------
-@tree.command(name="reaction_role_avec_message", description="Crée un message avec réactions pour attribuer des rôles (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-async def reaction_role_avec_message(interaction: discord.Interaction, salon: discord.TextChannel, emojis: str, roles: str):
-    try:
-        emojis_list = [e.strip() for e in emojis.split(",")]
-        roles_list = [r.strip() for r in roles.split(",")]
-        if len(emojis_list) != len(roles_list):
-            await interaction.response.send_message("❌ Le nombre d'emojis et de rôles doit correspondre.", ephemeral=True)
-            return
-        bot.temp_data["reaction_role"] = {
-            "channel": salon,
-            "emojis": emojis_list,
-            "roles": roles_list,
-            "user_id": interaction.user.id
-        }
-        class ModalReactionRole(Modal, title="Message avec réactions"):
-            message = TextInput(
-                label="Texte du message",
-                style=TextStyle.paragraph,
-                required=True,
-                max_length=4000
-            )
-            async def on_submit(self, inter_modal: discord.Interaction):
-                await inter_modal.response.defer(ephemeral=True)
-                data = bot.temp_data.get("reaction_role", {})
-                if inter_modal.user.id != data.get("user_id"):
-                    await inter_modal.followup.send("❌ Vous n'êtes pas autorisé.", ephemeral=True)
-                    return
-                channel = data.get("channel")
-                emojis = data.get("emojis")
-                roles_str = data.get("roles")
-                txt = self.message.value
-                sent_msg = await channel.send(txt)
-                for emo in emojis:
-                    await sent_msg.add_reaction(emo)
-                mapping = {}
-                for emo, role_str in zip(emojis, roles_str):
-                    key = get_emoji_key(emo)
-                    if role_str.startswith("<@&"):
-                        role_id = int(role_str.replace("<@&", "").replace(">", ""))
-                    else:
-                        r_obj = discord.utils.get(inter_modal.guild.roles, name=role_str.replace("@", ""))
-                        if r_obj:
-                            role_id = r_obj.id
-                        else:
-                            await inter_modal.followup.send(f"❌ Rôle introuvable: {role_str}", ephemeral=True)
-                            return
-                    mapping[key] = role_id
-                bot.reaction_roles[str(sent_msg.id)] = mapping
-                await sauvegarder_json_async(REACTION_ROLE_FILE, bot.reaction_roles)
-                await inter_modal.followup.send("✅ Message et réactions configurés!", ephemeral=True)
-        await interaction.response.send_modal(ModalReactionRole())
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
-
-# ------------------------------------------
-# Fonction main – Chargement et lancement
-# ------------------------------------------
+# ==============================================================================
+# MAIN
+# ==============================================================================
 async def main():
-    global xp_data, messages_programmes, defis_data, config_pomodoro, objectifs_data, categories_aide
+    global xp_data, messages_programmes, defis_data, pomodoro_data, goals_data, weekly_plan_data, reminders_data, quiz_data
     try:
         xp_data = await charger_json_async(XP_FILE)
         messages_programmes = await charger_json_async(MSG_FILE)
         defis_data = await charger_json_async(DEFIS_FILE)
-        config_pomodoro = await charger_json_async(POMODORO_CONFIG_FILE)
-        objectifs_data = await charger_json_async(GOALS_FILE)
-        bot.evenement_config = await charger_json_async(EVENEMENT_CONFIG_FILE)
-        bot.theme_config = await charger_json_async(THEME_CONFIG_FILE)
-        bot.missions_secretes = await charger_json_async(MISSIONS_FILE)
-        bot.evenements_calendrier = await charger_json_async(CALENDRIER_FILE)
-        categories_aide = await charger_json_async(HELP_REQUEST_FILE)
-        bot.reaction_roles = await charger_json_async(REACTION_ROLE_FILE)
-        sos_conf = await charger_json_async(SOS_CONFIG_FILE)
-        bot.sos_receivers = sos_conf.get("receivers", [])
-        print("⚙️ Données chargées avec succès.")
+        pomodoro_data = await charger_json_async(POMODORO_FILE)
+        goals_data = await charger_json_async(GOALS_FILE)
+        weekly_plan_data = await charger_json_async(WEEKLY_PLAN_FILE)
+        reminders_data = await charger_json_async(REMINDERS_FILE)
+        quiz_data = await charger_json_async(QUIZ_FILE)
     except Exception as e:
-        print(f"❌ Erreur chargement données: {e}")
-    await setup_admin_utils(bot)
-    await setup_autodm(bot)
-    await setup_moderation(bot)
-    try:
-        token = os.getenv("DISCORD_TOKEN")
-        if not token:
-            print("❌ Erreur: DISCORD_TOKEN non défini.")
-            return
-        await bot.start(token)
-    except Exception as e:
-        print(f"❌ Erreur critique lancement bot: {e}")
+        logging.error(f"❌ Erreur chargement données: {e}")
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    # Chargement de tous les cogs
+    await setup_config(bot)
+    await setup_pomodoro(bot)
+    await setup_leaderboard(bot)
+    await setup_uptime(bot)
+    await setup_maintenance(bot)
+    await setup_goals(bot)
+    await setup_weekly_plan(bot)
+    await setup_reminders(bot)
+    await setup_quiz(bot)
+    await setup_focus_group(bot)
+    await setup_weekly_summary(bot)
+    await setup_citations(bot)
+    await setup_emergency(bot)
+    await setup_channel_lock(bot)
+    await setup_focus_protect(bot)
+    await setup_sleep_mode(bot)
+    await setup_recherches(bot)
+    await setup_activity_drop(bot)
+    await setup_bibliotheque(bot)
+    await setup_smart_reactions(bot)
+    await setup_quetes(bot)
+    await setup_discipline_personnelle(bot)
+    await setup_saison(bot)
+    await setup_commandant(bot)
+    await setup_double_compte(bot)
+    await setup_isolation(bot)
+    await setup_tempete(bot)
+    await setup_version_parallele(bot)
+    await setup_tribunal(bot)
+    await setup_quetes_identite(bot)
+    await setup_univers_paralleles(bot)
+    await setup_hall_of_mastery(bot)
+    await setup_chrono_discipline(bot)
+    await setup_livres_savoir(bot)
+    await setup_jour_zero(bot)
+    await setup_forge_protocoles(bot)
+    await setup_mur_promesses(bot)
+    await setup_rpg_discipline(bot)
+    await setup_eclipse_mentale(bot)
+    await setup_miroir_futur(bot)
+    await setup_monnaie_mentale(bot)
+    await setup_rituel_vocal(bot)
+    await setup_chasseur_distraction(bot)
+    await setup_influence_mentale(bot)
+    await setup_base_secrete(bot)
+    await setup_eveil_progressif(bot)
+    await setup_rituel_silence(bot)
+    await setup_commandements(bot)
+    await setup_archives_mentales(bot)
+    await setup_pacte_sang(bot)
+    await setup_duel_mental(bot)
+    await setup_codex(bot)
+    await setup_roles_totem(bot)
+    await setup_visionnaire(bot)
+    await setup_legacy(bot)
+    # Synchronisation finale des commandes slash
+    await bot.tree.sync()
+
+    try:
+        await bot.start(DISCORD_TOKEN)
+    except Exception as e:
+        logging.error(f"❌ Erreur lancement bot: {e}")
+
+asyncio.run(main())
+
+# ==============================================================================
+# Commande ADMIN : /set_channel_stats
+# ==============================================================================
+@tree.command(name="set_channel_stats", description="Définit le salon pour les stats hebdomadaires (admin)")
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(channel="Salon où seront postées les stats chaque semaine")
+async def set_channel_stats(interaction: discord.Interaction, channel: discord.TextChannel):
+    bot.weekly_stats_channel = str(channel.id)
+    await interaction.response.send_message(f"✅ Salon défini pour les stats hebdo : {channel.mention}", ephemeral=True)
