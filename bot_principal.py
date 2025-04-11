@@ -1534,23 +1534,36 @@ async def stats_hebdo(interaction: discord.Interaction):
 
 
 
+# ---------------------------------------------------------------
+# Commande admin : /set_destinataires_sos
+# Permet de définir les rôles et utilisateurs à alerter en cas de message de détresse
+# ---------------------------------------------------------------
 @tree.command(name="set_destinataires_sos", description="Définit les destinataires des messages de détresse (admin)")
 @app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(mentions_roles="Mentionne les rôles (ex: @Aider @Soigneur)", utilisateurs="Utilisateurs à alerter")
-async def set_destinataires_sos(interaction: discord.Interaction, mentions_roles: str, utilisateurs: Optional[List[discord.User]] = None):
+@app_commands.describe(
+    mentions_roles="Mentionne les rôles (ex: @Aide @Soigneur)",
+    mentions_utilisateurs="Mentionne les utilisateurs (ex: @Marie @Lucas)"
+)
+async def set_destinataires_sos(
+    interaction: discord.Interaction,
+    mentions_roles: str,
+    mentions_utilisateurs: str
+):
     bot.sos_receivers = []
 
-    # Extraire les rôles mentionnés depuis le texte
+    # Récupérer les rôles mentionnés dans la chaîne
     for role in interaction.guild.roles:
         if role.mention in mentions_roles:
             bot.sos_receivers.append(role.id)
 
-    # Ajouter les utilisateurs si fournis
-    if utilisateurs:
-        bot.sos_receivers.extend([u.id for u in utilisateurs])
+    # Récupérer les utilisateurs mentionnés dans la chaîne
+    for member in interaction.guild.members:
+        if member.mention in mentions_utilisateurs:
+            bot.sos_receivers.append(member.id)
 
     await sauvegarder_json_async(SOS_CONFIG_FILE, {"receivers": bot.sos_receivers})
     await interaction.response.send_message("✅ Destinataires mis à jour pour les messages SOS.", ephemeral=True)
+
 
 @tree.command(name="sos", description="Lance une alerte en cas de burn-out ou besoin d’aide")
 async def sos(interaction: discord.Interaction):
