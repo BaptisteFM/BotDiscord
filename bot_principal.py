@@ -76,7 +76,6 @@ def safe_command(func):
         except Exception as e:
             import traceback
             traceback.print_exc()
-            # Si une Interaction est trouvée dans les arguments, on envoie un message d'erreur.
             for arg in args:
                 if isinstance(arg, discord.Interaction):
                     try:
@@ -99,7 +98,7 @@ pomodoro_data = {}       # { user_id: { "total_focus": int, "session_count": int
 goals_data = {}          # { user_id: [ { "id": str, "texte": str, "status": str }, ... ] }
 weekly_plan_data = {}    # { user_id: [ "Priorité 1", "Priorité 2", ... ] }
 reminders_data = {}      # { reminder_id: { "user_id": str, "time": str, "message": str, "daily": bool } }
-quiz_data = {}           # { "questions": [ { "question": str, "choices": [str,...], "answer": int } ] }
+quiz_data = {}           # { "questions": [ { "question": str, "choices": [str, ...], "answer": int } ] }
 quiz_results_data = {}   # { user_id: [ { "score": int, "total": int, "date": float } ] }
 citations_data = {}      # { "citations": [ "Citation 1", "Citation 2", ... ] }
 links_data = {}          # { "links": [ { "lien": str, "description": str, "public": bool } ] }
@@ -137,9 +136,13 @@ intents.guilds = True
 intents.reactions = True
 intents.voice_states = True
 
+# Récupération du token et de l'application_id depuis les variables d'environnement
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+APPLICATION_ID = int(os.getenv("APPLICATION_ID")) if os.getenv("APPLICATION_ID") else None
+
 class MyBot(commands.Bot):
-    def __init__(self):
-        super().__init__(command_prefix="!", intents=intents)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.reaction_roles = {}
         self.vocal_start_times = {}
         self.xp_config = {
@@ -220,7 +223,7 @@ class MyBot(commands.Bot):
         except Exception as e:
             logging.error(f"❌ Erreur dans setup_hook : {e}")
 
-bot = MyBot()
+bot = MyBot(command_prefix="!", intents=intents, application_id=APPLICATION_ID)
 tree = bot.tree
 
 def is_allowed(feature: str, interaction: discord.Interaction) -> bool:
@@ -229,20 +232,16 @@ def is_allowed(feature: str, interaction: discord.Interaction) -> bool:
         return True
     return interaction.channel.id == int(allowed)
 
-# -------------------- Handler global des erreurs --------------------
 @tree.error
 async def on_app_command_error(interaction: discord.Interaction, error):
     import traceback
     traceback.print_exc()
     try:
         if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "❌ Une erreur interne est survenue. Veuillez réessayer plus tard.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ Une erreur interne est survenue. Veuillez réessayer plus tard.", ephemeral=True)
     except Exception as e:
         logging.error(f"Erreur dans le handler global : {e}")
 
-# -------------------- COMMANDES ADMIN POUR DÉFINIR LES SALONS --------------------
 @tree.command(name="set_channel", description="Définit le canal autorisé pour un module (admin)")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(module="Nom du module", channel="Salon où la commande est accessible")
@@ -254,18 +253,16 @@ async def set_channel(interaction: discord.Interaction, module: str, channel: di
     else:
         await interaction.response.send_message(f"❌ Module inconnu: {module}", ephemeral=True)
 
-# -------------------- NOUVELLE COG DE CONFIGURATION --------------------
+# -------------------- Cog de Configuration --------------------
 class ConfigCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
     @safe_command
-    @app_commands.command(name="set_mentors", description="Définir les mentors pour les alertes (admin). Vous pouvez spécifier une liste de mentions (rôles, membres ou salons) séparées par un espace.")
+    @app_commands.command(name="set_mentors", description="Définir les mentors pour les alertes (admin). Spécifiez une liste de mentions séparées par un espace.")
     @app_commands.checks.has_permissions(administrator=True)
     async def set_mentors(self, interaction: discord.Interaction, mentors: str):
-        """
-        Exemple : "@MentorRole @Membre1 <#123456789012345678>"
-        """
+        # Exemple : "@MentorRole @Membre1 <#123456789012345678>"
         mentor_list = []
         role_mentions = re.findall(r"<@&(\d+)>", mentors)
         member_mentions = re.findall(r"<@!?(\d+)>", mentors)
@@ -279,17 +276,15 @@ class ConfigCog(commands.Cog):
             mentor_list.append({"type": "channel", "id": int(channel_id)})
         self.bot.mentor_targets = mentor_list
         await interaction.response.send_message("✅ Mentors mis à jour.", ephemeral=True)
-    
+
     @safe_command
     @app_commands.command(name="set_xp_config", description="Configurer le système XP (admin)")
     @app_commands.checks.has_permissions(administrator=True)
     async def set_xp_config(self, interaction: discord.Interaction, config: str):
-        """
-        Exemple : {"xp_per_message": 15, "announcement_channel": "123456789012345678"}
-        """
+        # Exemple : {"xp_per_message": 15, "announcement_channel": "123456789012345678"}
         try:
             new_config = json.loads(config)
-            bot.xp_config.update(new_config)
+            self.bot.xp_config.update(new_config)
             await interaction.response.send_message("✅ XP configuration mise à jour.", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
@@ -301,9 +296,15 @@ async def setup_config(bot: commands.Bot):
 # --- Pomodoro Cog ---
 pomodoro_config = {"focus": 25, "short_break": 5, "long_break": 15, "cycles_before_long_break": 4}
 active_pomodoro_sessions = {}
+
 class PomodoroCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    async def cog_load(self):
+        # Si vous avez besoin de lancer une tâche quand le cog est chargé, faites-le ici.
+        pass
+
     @safe_command
     async def pomodoro_cycle(self, user: discord.Member, cmd_channel: discord.TextChannel, focus_duration: int, short_break: int, long_break: int):
         session_count = 0
@@ -339,6 +340,7 @@ class PomodoroCog(commands.Cog):
             await dm.send("🛑 Session Pomodoro arrêtée.")
         except Exception as e:
             await dm.send(f"❌ Erreur Pomodoro : {e}")
+
     @safe_command
     @app_commands.command(name="focus_start", description="Démarrer une session Pomodoro")
     async def focus_start(self, interaction: discord.Interaction, focus: int, short_break: int, long_break: int):
@@ -352,6 +354,7 @@ class PomodoroCog(commands.Cog):
         task = asyncio.create_task(self.pomodoro_cycle(user, interaction.channel, focus, short_break, long_break))
         active_pomodoro_sessions[str(user.id)] = task
         await interaction.response.send_message("✅ Session démarrée. Vérifiez vos DM.", ephemeral=True)
+
     @safe_command
     @app_commands.command(name="stop_focus", description="Arrêter sa session Pomodoro")
     async def stop_focus(self, interaction: discord.Interaction):
@@ -365,6 +368,7 @@ class PomodoroCog(commands.Cog):
             await interaction.response.send_message("✅ Session stoppée.", ephemeral=True)
         else:
             await interaction.response.send_message("❌ Aucune session active.", ephemeral=True)
+
     @safe_command
     @app_commands.command(name="focus_stats", description="Afficher ses statistiques Pomodoro")
     async def focus_stats(self, interaction: discord.Interaction):
@@ -376,6 +380,7 @@ class PomodoroCog(commands.Cog):
         await interaction.response.send_message(
             f"🔹 Sessions : {stats['session_count']}, Total focus : {stats['total_focus']} minutes.", ephemeral=True
         )
+
     @safe_command
     @app_commands.command(name="set_pomodoro_config", description="Configurer Pomodoro (admin)")
     @app_commands.checks.has_permissions(administrator=True)
@@ -404,6 +409,7 @@ class GoalsCog(commands.Cog):
         goals_data.setdefault(uid, []).append(obj)
         await sauvegarder_json_async(GOALS_FILE, goals_data)
         await interaction.response.send_message("✅ Objectif ajouté.", ephemeral=True)
+
     @safe_command
     @app_commands.command(name="mes_objectifs", description="Afficher ses objectifs")
     async def mes_objectifs(self, interaction: discord.Interaction):
@@ -417,6 +423,7 @@ class GoalsCog(commands.Cog):
             return
         lines = [f"`{o['id']}` - {o['texte']} ({o['status']})" for o in objs]
         await interaction.response.send_message("📝 Objectifs :\n" + "\n".join(lines), ephemeral=True)
+
     @safe_command
     @app_commands.command(name="objectif_fait", description="Marquer un objectif comme terminé")
     async def objectif_fait(self, interaction: discord.Interaction, id_objectif: str):
@@ -432,6 +439,7 @@ class GoalsCog(commands.Cog):
                 await interaction.response.send_message("✅ Objectif terminé.", ephemeral=True)
                 return
         await interaction.response.send_message("❌ Objectif introuvable.", ephemeral=True)
+
     @safe_command
     @app_commands.command(name="supprimer_objectif", description="Supprimer un objectif")
     async def supprimer_objectif(self, interaction: discord.Interaction, id_objectif: str):
@@ -698,9 +706,9 @@ Citation de la semaine : {citation if citation else 'Aucune'}"""
     @safe_command
     @app_commands.command(name="set_recap_config", description="Configurer le récap (admin)")
     @app_commands.checks.has_permissions(administrator=True)
-    async def set_recap_config(self, interaction: discord.Interaction, channel: discord.TextChannel, time: str, day: str, role: discord.Role = None):
+    async def set_recap_config(self, interaction: discord.Interaction, channel: discord.TextChannel, time_str: str, day: str, role: discord.Role = None):
         weekly_recap_config["channel_id"] = str(channel.id)
-        weekly_recap_config["time"] = time
+        weekly_recap_config["time"] = time_str
         weekly_recap_config["day"] = day
         if role:
             weekly_recap_config["role_id"] = str(role.id)
@@ -1298,10 +1306,7 @@ class VersionParalleleCog(commands.Cog):
     @safe_command
     @app_commands.command(name="simuler_autre_toi", description="Générer une version parallèle de vous-même")
     async def simuler_autre_toi(self, interaction: discord.Interaction):
-        await interaction.response.send_message(
-            "😈 Voici votre version parallèle : Plus audacieux, plus performant... Un peu plus agressif. Motivation renforcée!",
-            ephemeral=True
-        )
+        await interaction.response.send_message("😈 Voici votre version parallèle : Plus audacieux, plus performant... Un peu plus agressif. Motivation renforcée!", ephemeral=True)
 
 async def setup_version_parallele(bot: commands.Bot):
     await bot.add_cog(VersionParalleleCog(bot))
@@ -1513,9 +1518,7 @@ class MiroirFuturCog(commands.Cog):
     @safe_command
     @app_commands.command(name="miroir_futur", description="Afficher un reflet du futur")
     async def miroir_futur(self, interaction: discord.Interaction):
-        await interaction.response.send_message(
-            "✨ Si tu augmentais tes efforts de 10%, imagine le futur! Concentre-toi et excelle!", ephemeral=True
-        )
+        await interaction.response.send_message("✨ Si tu augmentais tes efforts de 10%, imagine le futur! Concentre-toi et excelle!", ephemeral=True)
 
 async def setup_miroir_futur(bot: commands.Bot):
     await bot.add_cog(MiroirFuturCog(bot))
@@ -1546,9 +1549,7 @@ class MonnaieMentaleCog(commands.Cog):
             await interaction.response.send_message("❌ Solde insuffisant.", ephemeral=True)
         else:
             self.monnaie[uid] = balance - montant
-            await interaction.response.send_message(
-                f"✅ Dépensé {montant} fragments. Nouveau solde: {self.monnaie[uid]}", ephemeral=True
-            )
+            await interaction.response.send_message(f"✅ Dépensé {montant} fragments. Nouveau solde: {self.monnaie[uid]}", ephemeral=True)
 
 async def setup_monnaie_mentale(bot: commands.Bot):
     await bot.add_cog(MonnaieMentaleCog(bot))
@@ -1560,9 +1561,7 @@ class RituelVocalCog(commands.Cog):
     @safe_command
     @app_commands.command(name="lancer_rituel", description="Démarrer le rituel vocal collectif")
     async def lancer_rituel(self, interaction: discord.Interaction):
-        await interaction.response.send_message(
-            "🎤 Rituel de discipline lancé. Rendez-vous dans le salon vocal 'RITUEL DE LA DISCIPLINE' pour 15 minutes de focus.", ephemeral=True
-        )
+        await interaction.response.send_message("🎤 Rituel de discipline lancé. Rendez-vous dans le salon vocal 'RITUEL DE LA DISCIPLINE' pour 15 minutes de focus.", ephemeral=True)
 
 async def setup_rituel_vocal(bot: commands.Bot):
     await bot.add_cog(RituelVocalCog(bot))
@@ -1865,7 +1864,196 @@ async def main():
     await bot.tree.sync()
 
     try:
-        await bot.start(os.getenv("DISCORD_TOKEN"))
+        await bot.start(DISCORD_TOKEN)
+    except Exception as e:
+        logging.error(f"❌ Erreur lancement bot: {e}")
+
+async def setup_reaction_roles(bot: commands.Bot):
+    # Exemple minimal de réaction role ; à compléter si nécessaire
+    class DummyReactionRoleCog(commands.Cog):
+        def __init__(self, bot: commands.Bot):
+            self.bot = bot
+            self.reaction_roles = {}
+        @safe_command
+        @app_commands.command(name="add_reaction_role", description="Ajouter une réaction role (admin)")
+        @app_commands.checks.has_permissions(administrator=True)
+        async def add_reaction_role(self, interaction: discord.Interaction, message_id: str, emoji: str, role: discord.Role):
+            mid = int(message_id)
+            if mid not in self.reaction_roles:
+                self.reaction_roles[mid] = {}
+            self.reaction_roles[mid][emoji] = role.id
+            await interaction.response.send_message("✅ Reaction role ajouté.", ephemeral=True)
+        @commands.Cog.listener()
+        async def on_raw_reaction_add(self, payload):
+            if payload.user_id == self.bot.user.id:
+                return
+            if payload.message_id in self.reaction_roles:
+                current = self.reaction_roles[payload.message_id]
+                emoji = str(payload.emoji)
+                if emoji in current:
+                    guild = self.bot.get_guild(payload.guild_id)
+                    if guild is None:
+                        return
+                    member = guild.get_member(payload.user_id)
+                    if member is None:
+                        return
+                    role = guild.get_role(current[emoji])
+                    if role:
+                        try:
+                            await member.add_roles(role)
+                        except Exception as e:
+                            logging.error(e)
+    await bot.add_cog(DummyReactionRoleCog(bot))
+
+async def setup_focus_group(bot: commands.Bot):
+    await bot.add_cog(FocusGroupCog(bot))
+
+async def setup_weekly_summary(bot: commands.Bot):
+    await bot.add_cog(WeeklySummaryCog(bot))
+
+async def setup_aide(bot: commands.Bot):
+    await bot.add_cog(AideCog(bot))
+
+async def setup_recherches(bot: commands.Bot):
+    await bot.add_cog(RecherchesPersoCog(bot))
+
+async def setup_activity_drop(bot: commands.Bot):
+    await bot.add_cog(ActivityDropCog(bot))
+
+async def setup_smart_reactions(bot: commands.Bot):
+    await bot.add_cog(SmartReactionsCog(bot))
+
+async def setup_quetes(bot: commands.Bot):
+    await bot.add_cog(QuetesCog(bot))
+
+async def setup_discipline_personnelle(bot: commands.Bot):
+    await bot.add_cog(DisciplinePersonnelCog(bot))
+
+async def setup_commandant(bot: commands.Bot):
+    await bot.add_cog(CommandantCog(bot))
+
+async def setup_double_compte(bot: commands.Bot):
+    await bot.add_cog(DoubleCompteCog(bot))
+
+async def setup_tempete(bot: commands.Bot):
+    await bot.add_cog(TempeteCog(bot))
+
+async def setup_version_parallele(bot: commands.Bot):
+    await bot.add_cog(VersionParalleleCog(bot))
+
+async def setup_journal_guerre(bot: commands.Bot):
+    await bot.add_cog(JournalGuerreCog(bot))
+
+async def setup_tribunal(bot: commands.Bot):
+    await bot.add_cog(TribunalCog(bot))
+
+async def setup_univers_paralleles(bot: commands.Bot):
+    await bot.add_cog(UniversParallelesCog(bot))
+
+async def setup_hall_of_mastery(bot: commands.Bot):
+    await bot.add_cog(HallOfMasteryCog(bot))
+
+async def setup_chrono_discipline(bot: commands.Bot):
+    await bot.add_cog(ChronoDisciplineCog(bot))
+
+async def setup_jour_zero(bot: commands.Bot):
+    await bot.add_cog(JourZeroCog(bot))
+
+async def setup_forge_protocoles(bot: commands.Bot):
+    await bot.add_cog(ForgeProtocolesCog(bot))
+
+async def setup_mur_promesses(bot: commands.Bot):
+    await bot.add_cog(MurPromessesCog(bot))
+
+async def setup_rpg_discipline(bot: commands.Bot):
+    await bot.add_cog(RPGDisciplineCog(bot))
+
+async def setup_eclipse_mentale(bot: commands.Bot):
+    await bot.add_cog(EclipseMentaleCog(bot))
+
+async def setup_miroir_futur(bot: commands.Bot):
+    await bot.add_cog(MiroirFuturCog(bot))
+
+async def setup_rituel_vocal(bot: commands.Bot):
+    await bot.add_cog(RituelVocalCog(bot))
+
+# -------------------- MAIN --------------------
+async def main():
+    global xp_data, messages_programmes, defis_data, pomodoro_data, goals_data, weekly_plan_data, reminders_data, quiz_data
+    try:
+        xp_data = await charger_json_async(XP_FILE)
+        messages_programmes = await charger_json_async(MSG_FILE)
+        defis_data = await charger_json_async(DEFIS_FILE)
+        pomodoro_data = await charger_json_async(POMODORO_FILE)
+        goals_data = await charger_json_async(GOALS_FILE)
+        weekly_plan_data = await charger_json_async(WEEKLY_PLAN_FILE)
+        reminders_data = await charger_json_async(REMINDERS_FILE)
+        quiz_data = await charger_json_async(QUIZ_FILE)
+    except Exception as e:
+        logging.error(f"❌ Erreur chargement données: {e}")
+
+    # Chargement de tous les cogs
+    await setup_reaction_roles(bot)
+    await setup_pomodoro(bot)
+    await setup_goals(bot)
+    await setup_weekly_plan(bot)
+    await setup_reminders(bot)
+    await setup_quiz(bot)
+    await setup_focus_group(bot)
+    await setup_weekly_summary(bot)
+    await setup_aide(bot)
+    await setup_citations(bot)
+    await setup_emergency(bot)
+    await setup_channel_lock(bot)
+    await setup_focus_protect(bot)
+    await setup_sleep_mode(bot)
+    await setup_recherches(bot)
+    await setup_activity_drop(bot)
+    await setup_bibliotheque(bot)
+    await setup_smart_reactions(bot)
+    await setup_quetes(bot)
+    await setup_discipline_personnelle(bot)
+    await setup_saison(bot)
+    await setup_commandant(bot)
+    await setup_double_compte(bot)
+    await setup_isolation(bot)
+    await setup_tempete(bot)
+    await setup_version_parallele(bot)
+    await setup_journal_guerre(bot)
+    await setup_tribunal(bot)
+    await setup_quetes_identite(bot)
+    await setup_univers_paralleles(bot)
+    await setup_hall_of_mastery(bot)
+    await setup_chrono_discipline(bot)
+    await setup_livres_savoir(bot)
+    await setup_jour_zero(bot)
+    await setup_forge_protocoles(bot)
+    await setup_mur_promesses(bot)
+    await setup_rpg_discipline(bot)
+    await setup_eclipse_mentale(bot)
+    await setup_miroir_futur(bot)
+    await setup_monnaie_mentale(bot)
+    await setup_rituel_vocal(bot)
+    await setup_chasseur_distraction(bot)
+    await setup_influence_mentale(bot)
+    await setup_base_secrete(bot)
+    await setup_eveil_progressif(bot)
+    await setup_rituel_silence(bot)
+    await setup_commandements(bot)
+    await setup_archives_mentales(bot)
+    await setup_pacte_sang(bot)
+    await setup_duel_mental(bot)
+    await setup_codex(bot)
+    await setup_roles_totem(bot)
+    await setup_visionnaire(bot)
+    await setup_legacy(bot)
+    await setup_config(bot)
+
+    # Synchronisation finale de toutes les commandes slash
+    await bot.tree.sync()
+
+    try:
+        await bot.start(DISCORD_TOKEN)
     except Exception as e:
         logging.error(f"❌ Erreur lancement bot: {e}")
 
