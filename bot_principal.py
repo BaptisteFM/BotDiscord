@@ -1838,6 +1838,9 @@ class HelpButtons(View):
 # ========================================
 # 🧩 Commande : /reaction_role — message avec plusieurs rôles par réaction
 # ========================================
+# ========================================
+# 📌 Modal : Créer un message avec plusieurs rôles par réaction
+# ========================================
 class MultiReactionRoleModal(Modal, title="🔧 Message à rôles multiples"):
     def __init__(self, salon: discord.TextChannel):
         super().__init__(timeout=None)
@@ -1847,40 +1850,62 @@ class MultiReactionRoleModal(Modal, title="🔧 Message à rôles multiples"):
             style=TextStyle.paragraph,
             required=True,
             max_length=2000,
-            placeholder="Écris ici le message à poster avec les réactions"
+            placeholder="Texte du message à envoyer"
         )
         self.reactions = TextInput(
             label="Réactions et rôles (emoji = @rôle)",
             style=TextStyle.paragraph,
             required=True,
             max_length=1000,
-            placeholder="😊 = @Rôle1\n🔥 = @Rôle2\n..."
+            placeholder="😊 = @Rôle1\n🔥 = @Rôle2"
         )
         self.add_item(self.message_content)
         self.add_item(self.reactions)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
+
         try:
+            # Envoi du message principal
             msg = await self.salon.send(textwrap.dedent(self.message_content.value))
             bot.reaction_roles[msg.id] = {}
 
+            erreurs = []
             lignes = self.reactions.value.strip().split("\n")
+
             for ligne in lignes:
                 if "=" not in ligne:
                     continue
                 emoji_str, role_str = [s.strip() for s in ligne.split("=", 1)]
+
+                # 🔍 Trouver le rôle par mention
                 role = discord.utils.get(interaction.guild.roles, mention=role_str)
                 if not role:
+                    erreurs.append(f"Rôle introuvable : {role_str}")
                     continue
-                emoji = PartialEmoji.from_str(emoji_str)
-                emoji_key = get_emoji_key(emoji)
-                await msg.add_reaction(emoji)
-                bot.reaction_roles[msg.id][emoji_key] = role.id
 
-            await interaction.followup.send(f"✅ Message envoyé dans {self.salon.mention} avec les réactions définies.", ephemeral=True)
+                # 🎭 Ajouter la réaction
+                try:
+                    await msg.add_reaction(emoji_str)
+                    emoji_key = get_emoji_key(emoji_str)
+                    bot.reaction_roles[msg.id][emoji_key] = role.id
+                except Exception:
+                    erreurs.append(f"Emoji invalide ou erreur : {emoji_str}")
+
+            if erreurs:
+                await interaction.followup.send(
+                    f"⚠️ Message envoyé mais avec erreurs :\n" + "\n".join(f"• {e}" for e in erreurs),
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    f"✅ Message envoyé dans {self.salon.mention} avec toutes les réactions.",
+                    ephemeral=True
+                )
+
         except Exception as e:
-            await interaction.followup.send(f"❌ Erreur lors de l'envoi : {e}", ephemeral=True)
+            await interaction.followup.send(f"❌ Erreur lors de l’envoi du message : {e}", ephemeral=True)
+
 
 
 
