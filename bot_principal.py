@@ -1831,6 +1831,88 @@ class HelpButtons(View):
 
 
 
+# ========================================
+# 📊 Commande utilisateur : /stats_hebdo
+# ========================================
+@tree.command(name="stats_hebdo", description="Affiche tes statistiques de la semaine")
+async def stats_hebdo(interaction: discord.Interaction):
+    try:
+        uid = str(interaction.user.id)
+        stats = bot.weekly_stats.get(uid, {"messages": 0, "vocal": 0})
+
+        nb_messages = stats.get("messages", 0)
+        minutes_vocal = round(stats.get("vocal", 0) / 60)
+
+        texte = textwrap.dedent(f"""
+        📊 **Stats de la semaine — {interaction.user.mention}**
+        ✉️ Messages envoyés : **{nb_messages}**
+        🎙️ Minutes en vocal : **{minutes_vocal}**
+        """)
+        await interaction.response.send_message(texte.strip(), ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
+
+
+
+
+
+# ========================================
+# 🧩 Commande : /reaction_role — message avec plusieurs rôles par réaction
+# ========================================
+class MultiReactionRoleModal(Modal, title="🔧 Créer un message avec plusieurs rôles par réaction"):
+    def __init__(self, salon: discord.TextChannel):
+        super().__init__(timeout=None)
+        self.salon = salon
+        self.message_content = TextInput(
+            label="Contenu du message",
+            style=TextStyle.paragraph,
+            required=True,
+            max_length=2000,
+            placeholder="Écris ici le message à poster avec les réactions (avec sauts de ligne)"
+        )
+        self.reactions = TextInput(
+            label="Liste des réactions et rôles",
+            style=TextStyle.paragraph,
+            required=True,
+            max_length=1000,
+            placeholder="Format : 😊 = @Rôle1\n🔥 = @Rôle2\n..."
+        )
+        self.add_item(self.message_content)
+        self.add_item(self.reactions)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            msg = await self.salon.send(textwrap.dedent(self.message_content.value))
+            bot.reaction_roles[msg.id] = {}
+
+            lignes = self.reactions.value.strip().split("\n")
+            for ligne in lignes:
+                if "=" not in ligne:
+                    continue
+                emoji_str, role_str = [s.strip() for s in ligne.split("=", 1)]
+                role = discord.utils.get(interaction.guild.roles, mention=role_str)
+                if not role:
+                    continue
+                emoji = PartialEmoji.from_str(emoji_str)
+                emoji_key = get_emoji_key(emoji)
+                await msg.add_reaction(emoji)
+                bot.reaction_roles[msg.id][emoji_key] = role.id
+
+            await interaction.followup.send(f"✅ Message envoyé dans {self.salon.mention} avec les réactions définies.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Erreur lors de l'envoi : {e}", ephemeral=True)
+
+
+@tree.command(name="reaction_role", description="Créer un message avec plusieurs rôles par réaction (via Modal)")
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(salon="Salon où envoyer le message avec les réactions")
+async def reaction_role(interaction: discord.Interaction, salon: discord.TextChannel):
+    try:
+        await interaction.response.send_modal(MultiReactionRoleModal(salon))
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
+
 
 
 
