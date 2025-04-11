@@ -1897,7 +1897,19 @@ async def reaction_role_avec_message(interaction: discord.Interaction, salon: di
                     bot: commands.Bot = interaction.client
                     if not hasattr(bot, "reaction_roles"):
                         bot.reaction_roles = {}
-                    role_ids = [int(r.strip().replace("<@&", "").replace(">", "")) for r in roles]
+                    role_ids = []
+                    for role_str in roles:
+                        role_str = role_str.strip()
+                        if role_str.startswith("<@&"):  # Mention de rôle
+                            role_id = int(role_str.replace("<@&", "").replace(">", ""))
+                            role_ids.append(role_id)
+                        else:  # Nom du rôle
+                            role_obj = discord.utils.get(interaction.guild.roles, name=role_str.replace("@", ""))
+                            if role_obj:
+                                role_ids.append(role_obj.id)
+                            else:
+                                await interaction_modal.followup.send(f"❌ Rôle introuvable : `{role_str}`", ephemeral=True)
+                                return
                     bot.reaction_roles[message_envoye.id] = dict(zip(emojis, role_ids))
 
                     await interaction_modal.followup.send("✅ Message envoyé avec succès !", ephemeral=True)
