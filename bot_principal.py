@@ -15,7 +15,6 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional, List
 
-
 # Configuration du port pour Render (ou autre hébergeur)
 os.environ["PORT"] = "10000"
 
@@ -37,9 +36,6 @@ MISSIONS_FILE = os.path.join(DATA_FOLDER, "missions_secretes.json")
 CALENDRIER_FILE = os.path.join(DATA_FOLDER, "evenements_calendrier.json")
 HELP_REQUEST_FILE = os.path.join(DATA_FOLDER, "help_requests.json")
 REACTION_ROLE_FILE = os.path.join(DATA_FOLDER, "reaction_roles.json")
-
-
-
 
 # ========================================
 # Verrou global pour accès asynchrone aux fichiers
@@ -88,7 +84,6 @@ config_pomodoro = {}
 objectifs_data = {}
 categories_crees = {}
 
-
 # ========================================
 # Configuration des intents
 # ========================================
@@ -99,7 +94,6 @@ intents.guilds = True
 intents.reactions = True
 intents.voice_states = True
 
-
 # ========================================
 # 🧠 Classe principale du bot (MyBot)
 # ========================================
@@ -109,10 +103,8 @@ class MyBot(commands.Bot):
 
         # Rôles par réaction (message_id: {emoji: role_id})
         self.reaction_roles = {}
-
         # Temps d’entrée en vocal (user_id: timestamp)
         self.vocal_start_times = {}
-
         # Configuration du système d’XP
         self.xp_config = {
             "xp_per_message": 10,
@@ -127,25 +119,19 @@ class MyBot(commands.Bot):
             "titres": {},  # xp: titre
             "goals_channel": None  # Salon autorisé pour la commande /objectif
         }
-
         # Configuration pour le récapitulatif hebdomadaire automatique
         self.recap_config = {
             "channel_id": None,
             "role_id": None
         }
-
         # Données d’objectifs persos (chargées depuis JSON)
         self.objectifs_data = {}  # user_id: liste d’objectifs
-
         # Configuration pour journal de session focus
         self.journal_focus_channel = None
-
         # ➕ Nouveau : salon pour stats hebdo
         self.weekly_stats_channel = None
-
         # Mémoire temporaire des stats hebdomadaires
         self.weekly_stats = {}
-
         # 📛 Destinataires des messages de détresse
         self.sos_receivers = []  # Liste de rôles ou IDs utilisateurs
         self.missions_secretes = {}
@@ -154,16 +140,15 @@ class MyBot(commands.Bot):
         self.theme_config = {}
         self.evenements_calendrier = {}
 
-    # Fonction get_emoji_key pour récupérer l'emoji sous forme standard
     def get_emoji_key(self, emoji):
         try:
-            pe = PartialEmoji.from_str(str(emoji))  # Essaie de créer l'emoji partiel
-            if pe.is_custom_emoji():  # Si c'est un emoji personnalisé
+            pe = PartialEmoji.from_str(str(emoji))
+            if pe.is_custom_emoji():
                 return f"<:{pe.name}:{pe.id}>"
-            return str(pe)  # Sinon, retourne l'emoji sous forme standard
+            return str(pe)
         except Exception as e:
             print(f"❌ Erreur lors de la récupération de l'emoji : {e}")
-            return str(emoji)  # Retourne l'emoji tel quel en cas d'erreur
+            return str(emoji)
 
     async def setup_hook(self):
         try:
@@ -175,19 +160,14 @@ class MyBot(commands.Bot):
             if not check_programmed_messages.is_running():
                 check_programmed_messages.start()
                 print("✅ Boucle des messages programmés démarrée")
-
             if not recap_hebdo_task.is_running():
                 recap_hebdo_task.start()
                 print("🕒 Tâche recap_hebdo_task démarrée")
-
             if not weekly_stats_task.is_running():
                 weekly_stats_task.start()
                 print("📊 Tâche weekly_stats_task démarrée")
         except Exception as e:
             print(f"❌ Erreur dans setup_hook : {e}")
-
-
-
 
 bot = MyBot()
 tree = bot.tree
@@ -270,9 +250,6 @@ def get_xp(user_id):
 # ========================================
 # Gestion de l'XP sur messages et en vocal
 # ========================================
-# ========================================
-# 📩 Événement : message envoyé (XP + stats)
-# ========================================
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -307,16 +284,11 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-# ========================================
-# 🔊 Événement : activité vocale (XP + stats)
-# ========================================
 @bot.event
 async def on_voice_state_update(member, before, after):
     if not before.channel and after.channel:
-        # 📥 Entrée dans un salon vocal
         bot.vocal_start_times[member.id] = time.time()
     elif before.channel and not after.channel:
-        # 📤 Sortie du salon vocal
         start = bot.vocal_start_times.pop(member.id, None)
         if start:
             duree = int((time.time() - start) / 60)
@@ -324,13 +296,11 @@ async def on_voice_state_update(member, before, after):
             gained = int(duree * bot.xp_config["xp_per_minute_vocal"] * mult)
             current_xp = await add_xp(member.id, gained)
 
-            # 🔁 Statistiques hebdomadaires — vocal
             uid = str(member.id)
             if uid not in bot.weekly_stats:
                 bot.weekly_stats[uid] = {"messages": 0, "vocal": 0}
-            bot.weekly_stats[uid]["vocal"] += duree * 60  # En secondes
+            bot.weekly_stats[uid]["vocal"] += duree * 60
 
-            # 🎖️ Vérification des rôles liés à l'XP
             for seuil, role_id in bot.xp_config["level_roles"].items():
                 if current_xp >= int(seuil):
                     role = member.guild.get_role(int(role_id))
@@ -344,7 +314,6 @@ async def on_voice_state_update(member, before, after):
                                     await chan.send(text_annonce)
                         except Exception as e:
                             print(f"❌ Erreur attribution rôle vocal: {e}")
-
 
 # ========================================
 # Commandes XP et Leaderboard
@@ -482,12 +451,9 @@ async def set_channel_objectifs(interaction: discord.Interaction, channel: disco
     bot.xp_config["goals_channel"] = str(channel.id)
     await interaction.response.send_message(f"✅ Commandes d’objectifs limitées à {channel.mention}", ephemeral=True)
 
-
 # ========================================
 # Commandes de création rapide de salons, catégories privées et rôles
 # ========================================
-
-# Commande pour créer un ou plusieurs salons
 @tree.command(name="creer_salon", description="Crée un ou plusieurs salons dans une catégorie (admin)")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(
@@ -497,7 +463,6 @@ async def set_channel_objectifs(interaction: discord.Interaction, channel: disco
 )
 async def creer_salon(interaction: discord.Interaction, noms: str, categorie: discord.CategoryChannel, type: str):
     try:
-        # Sépare les noms sur la virgule, supprime les espaces superflus
         noms_list = [n.strip() for n in noms.split(",") if n.strip()]
         if not noms_list:
             await interaction.response.send_message("❌ Aucun nom fourni.", ephemeral=True)
@@ -518,7 +483,6 @@ async def creer_salon(interaction: discord.Interaction, noms: str, categorie: di
     except Exception as e:
         await interaction.response.send_message(f"❌ Erreur lors de la création du salon : {e}", ephemeral=True)
 
-# Commande pour créer un ou plusieurs rôles
 @tree.command(name="creer_role", description="Crée un ou plusieurs rôles (admin)")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(
@@ -685,8 +649,11 @@ class RoleReactionModal(Modal, title="✍️ Message avec réaction"):
         try:
             message_envoye = await self.salon.send(textwrap.dedent(self.contenu.value))
             await message_envoye.add_reaction(self.emoji)
-            bot.reaction_roles[message_envoye.id] = {self.emoji_key: self.role.id}
+            # IMPORTANT : on utilise ici str(message_envoye.id) pour la cohérence avec la persistance
+            bot.reaction_roles[str(message_envoye.id)] = {self.emoji_key: self.role.id}
             await interaction.followup.send(f"✅ Message envoyé dans {self.salon.mention}\n- Emoji: {self.emoji}\n- Rôle: **{self.role.name}**", ephemeral=True)
+            # Sauvegarder la configuration des réactions
+            await sauvegarder_json_async(REACTION_ROLE_FILE, bot.reaction_roles)
         except Exception as e:
             await interaction.followup.send(f"❌ Erreur lors de l'envoi du message: {e}", ephemeral=True)
 
@@ -699,7 +666,9 @@ async def ajout_reaction_id(interaction: discord.Interaction, role: discord.Role
         msg = await interaction.channel.fetch_message(msg_id)
         await msg.add_reaction(emoji)
         emoji_key = get_emoji_key(emoji)
-        bot.reaction_roles.setdefault(msg_id, {})[emoji_key] = role.id
+        msg_id_str = str(msg_id)
+        bot.reaction_roles.setdefault(msg_id_str, {})[emoji_key] = role.id
+        await sauvegarder_json_async(REACTION_ROLE_FILE, bot.reaction_roles)
         await interaction.response.send_message(f"✅ Réaction {emoji} ajoutée pour le rôle {role.name} au message {message_id}.", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"❌ Erreur: {e}", ephemeral=True)
@@ -709,39 +678,29 @@ async def on_raw_reaction_add(payload):
     # Ignore les réactions du bot lui-même
     if payload.user_id == bot.user.id:
         return
-
     try:
-        # Récupérer le serveur et le membre
         guild = bot.get_guild(payload.guild_id)
         if not guild:
             print(f"❌ Guild introuvable pour {payload.guild_id}")
             return
-
         member = guild.get_member(payload.user_id)
         if not member:
             print(f"❌ Membre introuvable pour {payload.user_id}")
             return
-
-        # Vérification des données pour la réaction
-        emoji_key = get_emoji_key(payload.emoji)  # Utilisation de la fonction get_emoji_key
-        data = bot.reaction_roles.get(payload.message_id)
-
+        emoji_key = get_emoji_key(payload.emoji)
+        # Utilisation de str(payload.message_id) pour récupérer les données sauvegardées
+        data = bot.reaction_roles.get(str(payload.message_id))
         if not data:
             print(f"❌ Aucune donnée trouvée pour le message {payload.message_id}")
             return
-
         role_id = data.get(emoji_key)
         if not role_id:
             print(f"❌ Pas de rôle trouvé pour l'emoji {emoji_key} sur le message {payload.message_id}")
             return
-
-        # Vérification et ajout du rôle
         role = guild.get_role(int(role_id))
         if not role:
             print(f"❌ Rôle introuvable pour l'ID {role_id}")
             return
-
-        # Si le membre n'a pas déjà ce rôle, on l'ajoute
         if role not in member.roles:
             try:
                 await member.add_roles(role, reason="Réaction ajoutée")
@@ -752,49 +711,35 @@ async def on_raw_reaction_add(payload):
                 print(f"❌ Erreur lors de l'ajout du rôle {role.name} à {member.name} : {e}")
         else:
             print(f"⚠️ {member.name} a déjà le rôle {role.name}")
-
     except Exception as e:
         print(f"❌ Erreur dans on_raw_reaction_add : {e}")
 
-
 @bot.event
 async def on_raw_reaction_remove(payload):
-    # Ignore les réactions du bot lui-même
     if payload.user_id == bot.user.id:
         return
-
     try:
-        # Récupérer le serveur et le membre
         guild = bot.get_guild(payload.guild_id)
         if not guild:
             print(f"❌ Guild introuvable pour {payload.guild_id}")
             return
-
         member = guild.get_member(payload.user_id)
         if not member:
             print(f"❌ Membre introuvable pour {payload.user_id}")
             return
-
-        # Vérification des données pour la réaction
-        emoji_key = get_emoji_key(payload.emoji)  # Utilisation de la fonction get_emoji_key
-        data = bot.reaction_roles.get(payload.message_id)
-
+        emoji_key = get_emoji_key(payload.emoji)
+        data = bot.reaction_roles.get(str(payload.message_id))
         if not data:
             print(f"❌ Aucune donnée trouvée pour le message {payload.message_id}")
             return
-
         role_id = data.get(emoji_key)
         if not role_id:
             print(f"❌ Pas de rôle trouvé pour l'emoji {emoji_key} sur le message {payload.message_id}")
             return
-
-        # Vérification et retrait du rôle
         role = guild.get_role(int(role_id))
         if not role:
             print(f"❌ Rôle introuvable pour l'ID {role_id}")
             return
-
-        # Si le membre possède ce rôle, on le retire
         if role in member.roles:
             try:
                 await member.remove_roles(role, reason="Réaction retirée")
@@ -805,10 +750,8 @@ async def on_raw_reaction_remove(payload):
                 print(f"❌ Erreur lors du retrait du rôle {role.name} à {member.name} : {e}")
         else:
             print(f"⚠️ {member.name} ne possède pas le rôle {role.name}")
-
     except Exception as e:
         print(f"❌ Erreur dans on_raw_reaction_remove : {e}")
-
 
 # ========================================
 # Défi hebdomadaire et récurrent
@@ -1296,20 +1239,28 @@ def keep_alive(port=10000):
 
 keep_alive()
 
+# ========================================
+# Fusion unique de on_ready pour éviter les redéfinitions
+# ========================================
 @bot.event
 async def on_ready():
     try:
         print(f"✅ Connecté en tant que {bot.user} (ID : {bot.user.id})")
+        if not check_programmed_messages.is_running():
+            check_programmed_messages.start()
+            print("✅ Boucle des messages programmés démarrée")
+        if not recap_hebdo_task.is_running():
+            recap_hebdo_task.start()
+            print("🕒 Tâche recap_hebdo_task démarrée")
+        if not weekly_stats_task.is_running():
+            weekly_stats_task.start()
+            print("📊 Tâche weekly_stats_task démarrée")
     except Exception as e:
         print(f"❌ Erreur dans on_ready : {e}")
-
 
 # ========================================
 # Pomodoro
 # ========================================
-
-
-
 @tree.command(name="pomodoro", description="Lance une session Pomodoro personnalisée")
 @app_commands.describe(
     focus="Temps de concentration en minutes (par défaut 25)",
@@ -1332,21 +1283,17 @@ async def pomodoro(interaction: discord.Interaction, focus: int = 25, pause: int
     for session in range(1, 5):
         await user.send(f"🔴 Session {session} — Focus pendant {focus} minutes !")
         await asyncio.sleep(focus * 60)
-
         if session < 4:
             await user.send(f"🟡 Pause courte — {pause} minutes de pause.")
             await asyncio.sleep(pause * 60)
         else:
             await user.send(f"🟢 Pause longue — {longue_pause} minutes de pause.")
             await asyncio.sleep(longue_pause * 60)
-
     await user.send("✅ Pomodoro terminé ! Bravo pour ton focus 💪")
-
 
 # ========================================
 # Objectifs semaine
 # ========================================
-
 @tree.command(name="ajouter_objectif", description="Ajoute un objectif personnel à suivre")
 async def ajouter_objectif(interaction: discord.Interaction, objectif: str):
     if bot.xp_config.get("goals_channel") and str(interaction.channel.id) != str(bot.xp_config["goals_channel"]):
@@ -1356,6 +1303,7 @@ async def ajouter_objectif(interaction: discord.Interaction, objectif: str):
     objectifs_data.setdefault(uid, []).append(objectif)
     await sauvegarder_json_async(GOALS_FILE, objectifs_data)
     await interaction.response.send_message(f"✅ Objectif ajouté : **{objectif}**", ephemeral=True)
+
 @tree.command(name="voir_objectifs", description="Affiche tes objectifs enregistrés")
 async def voir_objectifs(interaction: discord.Interaction):
     if bot.xp_config.get("goals_channel") and str(interaction.channel.id) != str(bot.xp_config["goals_channel"]):
@@ -1368,6 +1316,7 @@ async def voir_objectifs(interaction: discord.Interaction):
         return
     lignes = "\n".join(f"🔹 {o}" for o in objectifs)
     await interaction.response.send_message(f"🎯 Tes objectifs :\n{lignes}", ephemeral=True)
+
 @tree.command(name="supprimer_objectif", description="Supprime un de tes objectifs")
 @app_commands.describe(position="Numéro de l’objectif à supprimer (1 = premier)")
 async def supprimer_objectif(interaction: discord.Interaction, position: int):
@@ -1385,20 +1334,9 @@ async def supprimer_objectif(interaction: discord.Interaction, position: int):
     await sauvegarder_json_async(GOALS_FILE, objectifs_data)
     await interaction.response.send_message(f"🗑️ Objectif supprimé : **{supprime}**", ephemeral=True)
 
-
-
-
 # ========================================
 # 📆 Récapitulatif hebdomadaire automatique
 # ========================================
-
-# Configuration persistante pour le recap
-bot.recap_config = {
-    "channel_id": None,
-    "role_id": None
-}
-
-# Commande ADMIN : /set_channel_recap
 @tree.command(name="set_channel_recap", description="Définit le salon pour les récapitulatifs hebdomadaires (admin)")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(channel="Salon où sera posté le récap")
@@ -1406,7 +1344,6 @@ async def set_channel_recap(interaction: discord.Interaction, channel: discord.T
     bot.recap_config["channel_id"] = str(channel.id)
     await interaction.response.send_message(f"✅ Salon défini pour les récapitulatifs : {channel.mention}", ephemeral=True)
 
-# Commande ADMIN : /set_role_recap
 @tree.command(name="set_role_recap", description="Définit le rôle à mentionner pour le récapitulatif (admin)")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(role="Rôle à ping à chaque récap")
@@ -1414,12 +1351,10 @@ async def set_role_recap(interaction: discord.Interaction, role: discord.Role):
     bot.recap_config["role_id"] = str(role.id)
     await interaction.response.send_message(f"✅ Rôle défini pour le récap : {role.mention}", ephemeral=True)
 
-# Tâche automatique pour envoyer le message chaque dimanche à 20h
 @tasks.loop(minutes=1)
 async def recap_hebdo_task():
     try:
         now = datetime.datetime.now(ZoneInfo("Europe/Paris"))
-        # Exécuter uniquement dimanche à 20h00
         if now.weekday() == 6 and now.hour == 20 and now.minute == 0:
             channel_id = bot.recap_config.get("channel_id")
             role_id = bot.recap_config.get("role_id")
@@ -1437,96 +1372,6 @@ async def recap_hebdo_task():
     except Exception as e:
         print(f"❌ Erreur dans recap_hebdo_task : {e}")
 
-# Lancer la tâche après que le bot soit prêt
-@bot.event
-async def on_ready():
-    try:
-        print(f"✅ Connecté en tant que {bot.user} (ID : {bot.user.id})")
-        if not recap_hebdo_task.is_running():
-            recap_hebdo_task.start()
-            print("🕒 Tâche recap_hebdo_task démarrée.")
-    except Exception as e:
-        print(f"❌ Erreur dans on_ready : {e}")
-
-
-
-
-
-
-
-
-# ========================================
-# 📓 Journal de Focus (commandes utilisateur + admin)
-# ========================================
-
-# Commande ADMIN : /set_channel_journal
-@tree.command(name="set_channel_journal", description="Définit le salon pour les journaux de focus (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(channel="Salon où seront postés les journaux de session")
-async def set_channel_journal(interaction: discord.Interaction, channel: discord.TextChannel):
-    bot.journal_focus_channel = str(channel.id)
-    await interaction.response.send_message(f"✅ Salon défini pour le journal de focus : {channel.mention}", ephemeral=True)
-
-# Modal pour écrire son mini journal de session
-class JournalFocusModal(Modal, title="🧠 Journal de ta session de focus"):
-    def __init__(self):
-        super().__init__(timeout=None)
-        self.bilan = TextInput(
-            label="Qu'as-tu accompli ?",
-            style=TextStyle.paragraph,
-            placeholder="Décris ta session ici (cours vus, notions maîtrisées, difficultés...)",
-            required=True,
-            max_length=1000
-        )
-        self.add_item(self.bilan)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            channel_id = bot.journal_focus_channel
-            if not channel_id:
-                await interaction.followup.send("❌ Aucun salon défini pour le journal. Contacte un admin.", ephemeral=True)
-                return
-            channel = bot.get_channel(int(channel_id))
-            if not channel:
-                await interaction.followup.send("❌ Salon introuvable.", ephemeral=True)
-                return
-
-            now = datetime.datetime.now(ZoneInfo("Europe/Paris")).strftime("%d/%m/%Y %H:%M")
-            message = textwrap.dedent(f"""
-            🧠 **Journal de session — {interaction.user.mention}**
-            ⏱️ {now}
-            ---
-            {self.bilan.value.strip()}
-            """)
-            await channel.send(message)
-            await interaction.followup.send("✅ Ton journal a bien été enregistré !", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ Erreur lors de l'envoi du journal : {e}", ephemeral=True)
-
-# Commande utilisateur : /journal_focus
-@tree.command(name="journal_focus", description="Note ce que tu as fait pendant ta session de focus")
-async def journal_focus(interaction: discord.Interaction):
-    try:
-        await interaction.response.send_modal(JournalFocusModal())
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
-
-
-
-# ========================================
-# 📊 Statistiques hebdomadaires (messages + vocal)
-# ========================================
-
-# Commande ADMIN : /set_channel_stats
-@tree.command(name="set_channel_stats", description="Définit le salon où seront envoyées les stats hebdomadaires (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(channel="Salon cible")
-async def set_channel_stats(interaction: discord.Interaction, channel: discord.TextChannel):
-    bot.stats_channel_id = str(channel.id)
-    await interaction.response.send_message(f"✅ Salon de stats hebdomadaires défini : {channel.mention}", ephemeral=True)
-
-# Tâche automatique qui envoie le résumé chaque dimanche à 21h
 @tasks.loop(minutes=1)
 async def weekly_stats_task():
     try:
@@ -1539,13 +1384,10 @@ async def weekly_stats_task():
             if not channel:
                 print("❌ Salon introuvable pour les stats hebdo.")
                 return
-
-            # Génération du message
             stats = bot.weekly_stats
             if not stats:
                 await channel.send("📊 Aucune activité enregistrée cette semaine.")
                 return
-
             message = "**📈 Statistiques hebdomadaires :**\n"
             for uid, data in stats.items():
                 member = channel.guild.get_member(int(uid))
@@ -1554,42 +1396,30 @@ async def weekly_stats_task():
                 msg_count = data.get("messages", 0)
                 vocal_minutes = round(data.get("vocal", 0) / 60)
                 message += f"• {member.mention} — 📨 {msg_count} msg / 🔊 {vocal_minutes} min vocal\n"
-
-            # Envoi et reset des données
             await channel.send(message.strip())
             bot.weekly_stats = {}
             print("✅ Statistiques hebdomadaires envoyées.")
     except Exception as e:
         print(f"❌ Erreur dans weekly_stats_task : {e}")
 
-# ========================================
-# Commande utilisateur : /stats_hebdo
-# ========================================
 @tree.command(name="stats_hebdo", description="Affiche tes statistiques de la semaine")
 async def stats_hebdo(interaction: discord.Interaction):
     try:
         uid = str(interaction.user.id)
         stats = bot.weekly_stats.get(uid, {"messages": 0, "vocal_minutes": 0})
-
         nb_messages = stats.get("messages", 0)
         minutes_vocal = stats.get("vocal_minutes", 0)
-
         texte = textwrap.dedent(f"""
         📊 **Stats de la semaine — {interaction.user.mention}**
         ✉️ Messages envoyés : **{nb_messages}**
         🎙️ Minutes en vocal : **{minutes_vocal}**
         """)
-
         await interaction.response.send_message(texte.strip(), ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
 
-
-
-
 # ---------------------------------------------------------------
 # Commande admin : /set_destinataires_sos
-# Permet de définir les rôles et utilisateurs à alerter en cas de message de détresse
 # ---------------------------------------------------------------
 @tree.command(name="set_destinataires_sos", description="Définit les destinataires des messages de détresse (admin)")
 @app_commands.checks.has_permissions(administrator=True)
@@ -1603,20 +1433,14 @@ async def set_destinataires_sos(
     mentions_utilisateurs: str
 ):
     bot.sos_receivers = []
-
-    # Récupérer les rôles mentionnés dans la chaîne
     for role in interaction.guild.roles:
         if role.mention in mentions_roles:
             bot.sos_receivers.append(role.id)
-
-    # Récupérer les utilisateurs mentionnés dans la chaîne
     for member in interaction.guild.members:
         if member.mention in mentions_utilisateurs:
             bot.sos_receivers.append(member.id)
-
     await sauvegarder_json_async(SOS_CONFIG_FILE, {"receivers": bot.sos_receivers})
     await interaction.response.send_message("✅ Destinataires mis à jour pour les messages SOS.", ephemeral=True)
-
 
 @tree.command(name="sos", description="Lance une alerte en cas de burn-out ou besoin d’aide")
 async def sos(interaction: discord.Interaction):
@@ -1625,7 +1449,6 @@ async def sos(interaction: discord.Interaction):
         if not bot.sos_receivers:
             await interaction.followup.send("⚠️ Aucun destinataire configuré pour les alertes. Contacte un admin.", ephemeral=True)
             return
-
         sent_to = []
         for receiver_id in bot.sos_receivers:
             try:
@@ -1644,7 +1467,6 @@ async def sos(interaction: discord.Interaction):
                                 pass
             except Exception as e:
                 print(f"❌ Erreur en envoyant SOS à {receiver_id} : {e}")
-
         if sent_to:
             await interaction.followup.send("✅ Alerte envoyée. Tu n’es pas seul.", ephemeral=True)
         else:
@@ -1652,8 +1474,6 @@ async def sos(interaction: discord.Interaction):
     except Exception as e:
         await interaction.followup.send(f"❌ Erreur : {e}", ephemeral=True)
 
-
-# 🎉 Commande ADMIN : Active un mode événement spécial avec un nom et un message visible pour tous
 @tree.command(name="mode_evenement", description="Active ou désactive un mode événement spécial (admin)")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(nom="Nom de l'événement", message="Message affiché pendant l'événement", actif="Activer ou désactiver")
@@ -1672,8 +1492,6 @@ async def mode_evenement(interaction: discord.Interaction, nom: str, message: st
     except Exception as e:
         await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
 
-
-# 🎨 Commande ADMIN : Définit le thème visuel saisonnier actuel (emoji, ambiance, etc.)
 @tree.command(name="set_theme", description="Modifie le thème visuel du serveur (admin)")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(nom="Nom du thème (ex: Été, Noël...)", emoji="Emoji principal", message="Message d'ambiance")
@@ -1689,8 +1507,6 @@ async def set_theme(interaction: discord.Interaction, nom: str, emoji: str, mess
     except Exception as e:
         await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
 
-
-# 🕵️ Commande ADMIN : Attribue une mission secrète hebdomadaire à un ou plusieurs utilisateurs
 @tree.command(name="mission_secrete", description="Assigne une mission secrète hebdomadaire à un utilisateur (admin)")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(utilisateur="Utilisateur ciblé", mission="Mission à accomplir")
@@ -1710,7 +1526,6 @@ async def mission_secrete(interaction: discord.Interaction, utilisateur: discord
     except Exception as e:
         await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
 
-# 📩 Commande UTILISATEUR : Voir sa mission secrète en cours
 @tree.command(name="ma_mission", description="Affiche ta mission secrète de la semaine")
 async def ma_mission(interaction: discord.Interaction):
     data = missions_secretes.get(str(interaction.user.id))
@@ -1719,7 +1534,6 @@ async def ma_mission(interaction: discord.Interaction):
     else:
         await interaction.response.send_message(f"🕵️ Mission secrète : **{data['mission']}**", ephemeral=True)
 
-# 📅 Commande UTILISATEUR : Ajoute un événement au calendrier collaboratif
 @tree.command(name="ajouter_evenement", description="Ajoute un événement au calendrier collaboratif")
 @app_commands.describe(titre="Titre de l'événement", date="Date (format JJ/MM/AAAA)", heure="Heure (HH:MM)", description="Détails")
 async def ajouter_evenement(interaction: discord.Interaction, titre: str, date: str, heure: str, description: str):
@@ -1729,7 +1543,6 @@ async def ajouter_evenement(interaction: discord.Interaction, titre: str, date: 
         except ValueError:
             await interaction.response.send_message("❌ Format de date ou heure invalide.", ephemeral=True)
             return
-
         eid = str(uuid.uuid4())
         evenements_calendrier[eid] = {
             "auteur": interaction.user.id,
@@ -1742,7 +1555,6 @@ async def ajouter_evenement(interaction: discord.Interaction, titre: str, date: 
     except Exception as e:
         await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
 
-# 📅 Commande UTILISATEUR : Voir les événements à venir
 @tree.command(name="voir_evenements", description="Affiche les événements à venir")
 async def voir_evenements(interaction: discord.Interaction):
     try:
@@ -1761,22 +1573,14 @@ async def voir_evenements(interaction: discord.Interaction):
     except Exception as e:
         await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
 
-
-
-
-
-
 @tree.command(name="besoin_aide", description="Demander de l'aide et créer une catégorie privée pour l'aide.")
 async def besoin_aide(interaction: discord.Interaction):
-    # Créer et envoyer le modal pour que l'utilisateur puisse décrire son problème
     modal = HelpRequestModal()
     await interaction.response.send_modal(modal)
-
 
 class HelpRequestModal(Modal, title="📩 Demande d'aide"):
     def __init__(self):
         super().__init__(timeout=None)
-        # Champ pour décrire le problème
         self.probleme = TextInput(
             label="Décris ton problème ou ta demande d'aide :",
             style=discord.TextStyle.paragraph,
@@ -1785,28 +1589,18 @@ class HelpRequestModal(Modal, title="📩 Demande d'aide"):
             max_length=2000
         )
         self.add_item(self.probleme)
-
     async def on_submit(self, interaction: discord.Interaction):
-        # Récupérer la description du problème
         problem_description = self.probleme.value
         guild = interaction.guild
-        
-        # Créer une catégorie privée pour la demande d'aide
         categorie = await guild.create_category("Demande d'aide")
-        
-        # Créer les salons texte et vocal dans la catégorie
         text_channel = await guild.create_text_channel("problème", category=categorie)
         voice_channel = await guild.create_voice_channel("aide vocal", category=categorie)
-
-        # Configurer les permissions pour la catégorie, rendre visible uniquement pour l'utilisateur
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             interaction.user: discord.PermissionOverwrite(view_channel=True),
         }
         await text_channel.set_permissions(interaction.user, read_messages=True)
         await voice_channel.set_permissions(interaction.user, connect=True)
-
-        # Enregistrer les données dans un fichier JSON pour persistance
         help_request_data = {
             "user_id": str(interaction.user.id),
             "problem_description": problem_description,
@@ -1817,86 +1611,55 @@ class HelpRequestModal(Modal, title="📩 Demande d'aide"):
         }
         categories_crees[str(interaction.user.id)] = help_request_data
         await sauvegarder_json_async(HELP_REQUEST_FILE, categories_crees)
-
-        # Envoi du message dans le salon de texte pour signaler le besoin d'aide
         await text_channel.send(
             f"{interaction.user.mention} a besoin d'aide. Problème : {problem_description}",
             view=HelpButtons(interaction.user.id)
         )
-
-        # Confirmer à l'utilisateur que sa demande a bien été envoyée
         await interaction.followup.send("✅ Demande d'aide envoyée ! Une catégorie privée a été créée.", ephemeral=True)
+
 class HelpButtons(View):
     def __init__(self, user_id):
         super().__init__()
-        self.user_id = user_id  # L'utilisateur qui a créé la demande d'aide
-
+        self.user_id = user_id
     @discord.ui.button(label="J'ai besoin d'aide", style=discord.ButtonStyle.primary)
     async def button_need_help(self, interaction: discord.Interaction, button: Button):
-        # Ajouter un rôle pour ceux qui ont besoin d'aide
         role = discord.utils.get(interaction.guild.roles, name="Besoin d'aide")
         if not role:
             role = await interaction.guild.create_role(name="Besoin d'aide")
-
         await interaction.user.add_roles(role)
         category_data = categories_crees.get(str(self.user_id), {})
         category = interaction.guild.get_category(int(category_data.get("category_id")))
         if category:
             await category.set_permissions(role, view_channel=True)
-
         await interaction.response.send_message(f"🔔 Vous avez été ajouté au rôle **{role.name}** pour aider.", ephemeral=True)
-
     @discord.ui.button(label="Je peux aider", style=discord.ButtonStyle.secondary)
     async def button_can_help(self, interaction: discord.Interaction, button: Button):
-        # Ajouter un rôle pour ceux qui peuvent aider
         role = discord.utils.get(interaction.guild.roles, name="Aider")
         if not role:
             role = await interaction.guild.create_role(name="Aider")
-
         await interaction.user.add_roles(role)
         category_data = categories_crees.get(str(self.user_id), {})
         category = interaction.guild.get_category(int(category_data.get("category_id")))
         if category:
             await category.set_permissions(role, view_channel=True)
-
         await interaction.response.send_message(f"🔔 Vous avez été ajouté au rôle **{role.name}** pour aider.", ephemeral=True)
-
     @discord.ui.button(label="Problème Résolu", style=discord.ButtonStyle.danger)
     async def button_problem_solved(self, interaction: discord.Interaction, button: Button):
-        # Vérifier que la personne qui a créé la demande est bien celle qui résout le problème
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("❌ Seul l'utilisateur ayant créé la demande peut marquer le problème comme résolu.", ephemeral=True)
             return
-
         category_data = categories_crees.get(str(self.user_id), {})
         if category_data:
             category = interaction.guild.get_category(int(category_data.get("category_id")))
             if category:
-                # Supprimer la catégorie et les salons
                 await category.delete()
-
-            # Supprimer les données de la demande d'aide
             del categories_crees[str(self.user_id)]
             await sauvegarder_json_async(HELP_REQUEST_FILE, categories_crees)
-
         await interaction.response.send_message("✅ Le problème a été marqué comme résolu. La catégorie a été supprimée.", ephemeral=True)
-
-
-
-
-
-
-
 
 # ========================================
 # 🧩 Commande : /reaction_role — message avec plusieurs rôles par réaction
 # ========================================
-
-# ----------------------------------------------------
-# Commande admin : /reaction_role_avec_message
-# Envoie un message avec des réactions + rôles associés
-# Le texte du message est saisi via un modal
-# ----------------------------------------------------
 @tree.command(name="reaction_role_avec_message", description="Créer un message avec des réactions pour attribuer des rôles")
 @app_commands.checks.has_permissions(administrator=True)
 async def reaction_role_avec_message(interaction: discord.Interaction, salon: discord.TextChannel, emojis: str, roles: str):
@@ -1904,26 +1667,17 @@ async def reaction_role_avec_message(interaction: discord.Interaction, salon: di
         if not interaction.guild:
             await interaction.response.send_message("Cette commande ne peut être utilisée que dans un serveur.", ephemeral=True)
             return
-
-        # Séparation et nettoyage des entrées emojis et rôles
         emojis_liste = [e.strip() for e in emojis.split(",")]
         roles_liste = [r.strip() for r in roles.split(",")]
-
         if len(emojis_liste) != len(roles_liste):
             await interaction.response.send_message("❌ Le nombre d'emojis et de rôles doit être le même.", ephemeral=True)
             return
-
-        # Stockage temporaire pour transfert au modal
         interaction.client.temp_reaction_data = {
             "channel": salon,
             "emojis": emojis_liste,
             "roles": roles_liste,
             "user_id": interaction.user.id
         }
-
-        # ----------------------------
-        # Modal pour saisir le message
-        # ----------------------------
         class ModalReactionRole(discord.ui.Modal, title="Texte du message à envoyer"):
             message = discord.ui.TextInput(
                 label="Contenu du message",
@@ -1931,75 +1685,46 @@ async def reaction_role_avec_message(interaction: discord.Interaction, salon: di
                 required=True,
                 max_length=4000
             )
-
             async def on_submit(self, interaction_modal: discord.Interaction):
                 try:
                     await interaction_modal.response.defer(thinking=False)
-
                     data = interaction.client.temp_reaction_data
                     if interaction_modal.user.id != data["user_id"]:
                         await interaction_modal.followup.send("Tu n'es pas autorisé à envoyer ce message.", ephemeral=True)
                         return
-
                     channel = data["channel"]
                     emojis = data["emojis"]
                     roles = data["roles"]
                     message_texte = self.message.value
-
-                    # Envoi du message avec réactions
                     message_envoye = await channel.send(message_texte)
                     for emoji in emojis:
                         await message_envoye.add_reaction(emoji)
-
-                    # Résolution des rôles
                     bot: commands.Bot = interaction.client
                     if not hasattr(bot, "reaction_roles"):
                         bot.reaction_roles = {}
-
                     role_ids = []
                     for role_str in roles:
                         role_str = role_str.strip()
-                        if role_str.startswith("<@&"):  # Format mention
+                        if role_str.startswith("<@&"):
                             role_id = int(role_str.replace("<@&", "").replace(">", ""))
                             role_ids.append(role_id)
-                        else:  # Nom du rôle
+                        else:
                             role_obj = discord.utils.get(interaction.guild.roles, name=role_str.replace("@", ""))
                             if role_obj:
                                 role_ids.append(role_obj.id)
                             else:
                                 await interaction_modal.followup.send(f"❌ Rôle introuvable : `{role_str}`", ephemeral=True)
                                 return
-
-                    # Enregistrement dans le bot + JSON
+                    # On enregistre en utilisant str(message_envoye.id) pour cohérence.
                     bot.reaction_roles[str(message_envoye.id)] = dict(zip(emojis, role_ids))
                     await sauvegarder_json_async(REACTION_ROLE_FILE, bot.reaction_roles)
-
                     await interaction_modal.followup.send("✅ Message envoyé avec succès et réactions enregistrées !", ephemeral=True)
-
                 except Exception as e:
                     await interaction_modal.followup.send(f"❌ Erreur dans le modal : {e}", ephemeral=True)
-
         await interaction.response.send_modal(ModalReactionRole())
-
     except Exception as e:
         if not interaction.response.is_done():
             await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 # ========================================
 # Fonction main – Chargement des données et lancement du bot
@@ -2007,9 +1732,7 @@ async def reaction_role_avec_message(interaction: discord.Interaction, salon: di
 async def main():
     global xp_data, messages_programmes, defis_data, config_pomodoro, objectifs_data
     global sos_config, evenement_config, theme_config, missions_secretes, evenements_calendrier
-
     try:
-        # Chargement des données JSON persistantes
         xp_data = await charger_json_async(XP_FILE)
         messages_programmes = await charger_json_async(MSG_FILE)
         defis_data = await charger_json_async(DEFIS_FILE)
@@ -2022,32 +1745,20 @@ async def main():
         evenements_calendrier = await charger_json_async(CALENDRIER_FILE)
         categories_crees = await charger_json_async(HELP_REQUEST_FILE)
         bot.reaction_roles = await charger_json_async(REACTION_ROLE_FILE)
-
-        # Attribution des données au bot pour accès dans les extensions
         bot.sos_receivers = sos_config.get("receivers", [])
         bot.evenement_config = evenement_config
         bot.theme_config = theme_config
         bot.missions_secretes = missions_secretes
         bot.evenements_calendrier = evenements_calendrier
         bot.categories_aide = categories_crees
-
     except Exception as e:
         print(f"❌ Erreur lors du chargement des données : {e}")
-
-    # Chargement des modules/commandes externes
-    await setup_admin_utils(bot)      # Commandes admin générales
-    await setup_autodm(bot)           # Système d’AutoDM
-    await setup_moderation(bot)       # Commandes de modération
-
-    # Lancement du bot
+    await setup_admin_utils(bot)
+    await setup_autodm(bot)
+    await setup_moderation(bot)
     try:
         await bot.start(os.getenv("DISCORD_TOKEN"))
     except Exception as e:
         print(f"❌ Erreur critique au lancement du bot : {e}")
-
-
-    
-
-
 
 asyncio.run(main())
