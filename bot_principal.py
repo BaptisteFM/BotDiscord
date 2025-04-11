@@ -469,16 +469,6 @@ async def set_channel_objectifs(interaction: discord.Interaction, channel: disco
     bot.xp_config["goals_channel"] = str(channel.id)
     await interaction.response.send_message(f"✅ Commandes d’objectifs limitées à {channel.mention}", ephemeral=True)
 
-# ========================================
-# Commande ADMIN : /set_channel_stats
-# ========================================
-@tree.command(name="set_channel_stats", description="Définit le salon pour les stats hebdomadaires (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(channel="Salon où seront postées les stats chaque semaine")
-async def set_channel_stats(interaction: discord.Interaction, channel: discord.TextChannel):
-    bot.weekly_stats_channel = str(channel.id)
-    await interaction.response.send_message(f"✅ Salon défini pour les stats hebdo : {channel.mention}", ephemeral=True)
-
 
 # ========================================
 # Commandes de création rapide de salons, catégories privées et rôles
