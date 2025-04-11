@@ -154,6 +154,16 @@ class MyBot(commands.Bot):
         self.theme_config = {}
         self.evenements_calendrier = {}
 
+    # Fonction get_emoji_key pour récupérer l'emoji sous forme standard
+    def get_emoji_key(self, emoji):
+        try:
+            pe = PartialEmoji.from_str(str(emoji))  # Essaie de créer l'emoji partiel
+            if pe.is_custom_emoji():  # Si c'est un emoji personnalisé
+                return f"<:{pe.name}:{pe.id}>"
+            return str(pe)  # Sinon, retourne l'emoji sous forme standard
+        except Exception as e:
+            print(f"❌ Erreur lors de la récupération de l'emoji : {e}")
+            return str(emoji)  # Retourne l'emoji tel quel en cas d'erreur
 
     async def setup_hook(self):
         try:
@@ -175,6 +185,7 @@ class MyBot(commands.Bot):
                 print("📊 Tâche weekly_stats_task démarrée")
         except Exception as e:
             print(f"❌ Erreur dans setup_hook : {e}")
+
 
 
 
@@ -695,69 +706,109 @@ async def ajout_reaction_id(interaction: discord.Interaction, role: discord.Role
 
 @bot.event
 async def on_raw_reaction_add(payload):
+    # Ignore les réactions du bot lui-même
     if payload.user_id == bot.user.id:
         return
-    guild = bot.get_guild(payload.guild_id)
-    if not guild:
-        return
-    member = guild.get_member(payload.user_id)
-    if not member or member.bot:
-        return
-    # Gestion du défi avec réaction ✅
-    if str(payload.emoji) == "✅":
-        data = defis_data.get(str(payload.message_id))
-        if data:
-            role = guild.get_role(int(data["role_id"]))
-            if role and role not in member.roles:
-                try:
-                    await member.add_roles(role, reason="Participation au défi")
-                except Exception as e:
-                    print(f"❌ Erreur ajout rôle défi: {e}")
-        return
-    emoji_key = get_emoji_key(payload.emoji)
-    data = bot.reaction_roles.get(payload.message_id)
-    if isinstance(data, dict):
+
+    try:
+        # Récupérer le serveur et le membre
+        guild = bot.get_guild(payload.guild_id)
+        if not guild:
+            print(f"❌ Guild introuvable pour {payload.guild_id}")
+            return
+
+        member = guild.get_member(payload.user_id)
+        if not member:
+            print(f"❌ Membre introuvable pour {payload.user_id}")
+            return
+
+        # Vérification des données pour la réaction
+        emoji_key = get_emoji_key(payload.emoji)  # Utilisation de la fonction get_emoji_key
+        data = bot.reaction_roles.get(payload.message_id)
+
+        if not data:
+            print(f"❌ Aucune donnée trouvée pour le message {payload.message_id}")
+            return
+
         role_id = data.get(emoji_key)
-        if role_id:
-            role = guild.get_role(int(role_id))
-            if role and role not in member.roles:
-                try:
-                    await member.add_roles(role, reason="Réaction ajoutée")
-                except Exception as e:
-                    print(f"❌ Erreur ajout rôle: {e}")
+        if not role_id:
+            print(f"❌ Pas de rôle trouvé pour l'emoji {emoji_key} sur le message {payload.message_id}")
+            return
+
+        # Vérification et ajout du rôle
+        role = guild.get_role(int(role_id))
+        if not role:
+            print(f"❌ Rôle introuvable pour l'ID {role_id}")
+            return
+
+        # Si le membre n'a pas déjà ce rôle, on l'ajoute
+        if role not in member.roles:
+            try:
+                await member.add_roles(role, reason="Réaction ajoutée")
+                print(f"✅ Rôle {role.name} ajouté à {member.name}")
+            except discord.Forbidden:
+                print(f"❌ Le bot n'a pas la permission d'ajouter le rôle {role.name} à {member.name}")
+            except Exception as e:
+                print(f"❌ Erreur lors de l'ajout du rôle {role.name} à {member.name} : {e}")
+        else:
+            print(f"⚠️ {member.name} a déjà le rôle {role.name}")
+
+    except Exception as e:
+        print(f"❌ Erreur dans on_raw_reaction_add : {e}")
+
 
 @bot.event
 async def on_raw_reaction_remove(payload):
+    # Ignore les réactions du bot lui-même
     if payload.user_id == bot.user.id:
         return
-    guild = bot.get_guild(payload.guild_id)
-    if not guild:
-        return
-    member = guild.get_member(payload.user_id)
-    if not member or member.bot:
-        return
-    # Gestion du défi avec réaction ✅
-    if str(payload.emoji) == "✅":
-        data = defis_data.get(str(payload.message_id))
-        if data:
-            role = guild.get_role(int(data["role_id"]))
-            if role and role in member.roles:
-                try:
-                    await member.remove_roles(role, reason="Abandon du défi")
-                except Exception as e:
-                    print(f"❌ Erreur retrait rôle défi: {e}")
-        return
-    emoji_key = get_emoji_key(payload.emoji)
-    data = bot.reaction_roles.get(payload.message_id)
-    if isinstance(data, dict):
+
+    try:
+        # Récupérer le serveur et le membre
+        guild = bot.get_guild(payload.guild_id)
+        if not guild:
+            print(f"❌ Guild introuvable pour {payload.guild_id}")
+            return
+
+        member = guild.get_member(payload.user_id)
+        if not member:
+            print(f"❌ Membre introuvable pour {payload.user_id}")
+            return
+
+        # Vérification des données pour la réaction
+        emoji_key = get_emoji_key(payload.emoji)  # Utilisation de la fonction get_emoji_key
+        data = bot.reaction_roles.get(payload.message_id)
+
+        if not data:
+            print(f"❌ Aucune donnée trouvée pour le message {payload.message_id}")
+            return
+
         role_id = data.get(emoji_key)
-        if role_id:
-            role = guild.get_role(int(role_id))
-            if role and role in member.roles:
-                try:
-                    await member.remove_roles(role, reason="Réaction retirée")
-                except Exception as e:
-                    print(f"❌ Erreur retrait rôle: {e}")
+        if not role_id:
+            print(f"❌ Pas de rôle trouvé pour l'emoji {emoji_key} sur le message {payload.message_id}")
+            return
+
+        # Vérification et retrait du rôle
+        role = guild.get_role(int(role_id))
+        if not role:
+            print(f"❌ Rôle introuvable pour l'ID {role_id}")
+            return
+
+        # Si le membre possède ce rôle, on le retire
+        if role in member.roles:
+            try:
+                await member.remove_roles(role, reason="Réaction retirée")
+                print(f"✅ Rôle {role.name} retiré de {member.name}")
+            except discord.Forbidden:
+                print(f"❌ Le bot n'a pas la permission de retirer le rôle {role.name} à {member.name}")
+            except Exception as e:
+                print(f"❌ Erreur lors du retrait du rôle {role.name} à {member.name} : {e}")
+        else:
+            print(f"⚠️ {member.name} ne possède pas le rôle {role.name}")
+
+    except Exception as e:
+        print(f"❌ Erreur dans on_raw_reaction_remove : {e}")
+
 
 # ========================================
 # Défi hebdomadaire et récurrent
