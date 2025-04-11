@@ -1840,93 +1840,87 @@ class HelpButtons(View):
 # ========================================
 
 
-@bot.tree.command(name="reaction_role_avec_message", description="Créer un message avec réactions et rôles associés.")
+# ----------------------------------------------------
+# Commande admin : /reaction_role_avec_message
+# Envoie un message avec des réactions + rôles associés
+# Le texte du message est saisi via un modal
+# ----------------------------------------------------
+@tree.command(name="reaction_role_avec_message", description="Créer un message avec des réactions pour attribuer des rôles")
 @app_commands.checks.has_permissions(administrator=True)
-async def reaction_role_avec_message(interaction: discord.Interaction):
+async def reaction_role_avec_message(interaction: discord.Interaction, salon: discord.TextChannel, emojis: str, roles: str):
     try:
-        await interaction.response.send_modal(ReactionRoleModal())
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur lors de l'ouverture du modal : {e}", ephemeral=True)
-# ─────────────────────────────────────────────
-# Classe : ReactionRoleModal (en dehors de la fonction)
-# ─────────────────────────────────────────────
+        # Vérifie que la commande est utilisée dans un serveur
+        if not interaction.guild:
+            await interaction.response.send_message("Cette commande ne peut être utilisée que dans un serveur.", ephemeral=True)
+            return
 
-class ReactionRoleModal(discord.ui.Modal, title="Créer un message avec rôles par réaction"):
-    message = discord.ui.TextInput(label="Contenu du message", style=discord.TextStyle.paragraph, required=True, max_length=2000)
-    roles = discord.ui.TextInput(label="Emojis = Rôles (un par ligne)", style=discord.TextStyle.paragraph, required=True)
+        # Vérifie que le nombre d'emojis et de rôles correspond
+        emojis_liste = [e.strip() for e in emojis.split(",")]
+        roles_liste = [r.strip() for r in roles.split(",")]
 
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            await interaction.response.defer(thinking=True, ephemeral=True)
+        if len(emojis_liste) != len(roles_liste):
+            await interaction.response.send_message("Le nombre d'emojis et de rôles doit être le même.", ephemeral=True)
+            return
 
-            # 🔹 Récupération des champs
-            message_text = self.message.value
-            roles_text = self.roles.value
+        # Stocke les infos temporairement dans l'interaction pour les récupérer dans le modal
+        interaction.client.temp_reaction_data = {
+            "channel": salon,
+            "emojis": emojis_liste,
+            "roles": roles_liste,
+            "user_id": interaction.user.id
+        }
 
-            emoji_role_dict = {}
-            erreurs = []
+        # Affiche le modal pour entrer le texte du message
+        class ModalReactionRole(discord.ui.Modal, title="Texte du message à envoyer"):
+            message = discord.ui.TextInput(label="Contenu du message", style=discord.TextStyle.paragraph, required=True)
 
-            # 📌 Parsing des lignes "emoji = @rôle"
-            role_lines = roles_text.strip().split('\n')
-            for line in role_lines:
-                if '=' not in line:
-                    continue
-
-                emoji_part, role_name = map(str.strip, line.split('=', 1))
-                emoji = emoji_part
-                role_name_clean = role_name.replace("@", "").strip()
-
-                # Recherche du rôle dans la guilde (insensible à la casse)
-                role = discord.utils.find(lambda r: r.name.lower() == role_name_clean.lower(), interaction.guild.roles)
-
-                if role is None:
-                    erreurs.append(role_name)
-                    continue
-
-                emoji_role_dict[emoji] = role.id
-
-            if not emoji_role_dict:
-                await interaction.followup.send("Aucun rôle valide trouvé. Vérifie bien les noms.", ephemeral=True)
-                return
-
-            # 📩 Envoie du message principal
-            message_envoye = await interaction.channel.send(message_text)
-
-            # ✅ Ajout des réactions
-            for emoji in emoji_role_dict.keys():
+            async def on_submit(self, interaction_modal: discord.Interaction):
                 try:
-                    await message_envoye.add_reaction(emoji)
-                except:
-                    erreurs.append(f"{emoji} (réaction invalide)")
+                    data = interaction.client.temp_reaction_data
+                    if interaction_modal.user.id != data["user_id"]:
+                        await interaction_modal.response.send_message("Tu n'es pas autorisé à envoyer ce message.", ephemeral=True)
+                        return
 
-            # 💾 Enregistrement dans le bot
-            bot.reaction_roles[message_envoye.id] = emoji_role_dict
-            with open("reaction_roles.json", "w") as f:
-                json.dump(bot.reaction_roles, f, indent=4)
+                    channel = data["channel"]
+                    emojis = data["emojis"]
+                    roles = data["roles"]
+                    message_texte = self.message.value
 
-            # 📢 Message de confirmation
-            if erreurs:
-                erreurs_formatees = "\n".join([f"• Rôle introuvable : {e}" for e in erreurs])
-                await interaction.followup.send(f"✅ Message envoyé mais avec erreurs :\n{erreurs_formatees}", ephemeral=True)
-            else:
-                await interaction.followup.send("✅ Message avec rôles par réaction envoyé avec succès !", ephemeral=True)
+                    # Envoie le message dans le salon spécifié
+                    message_envoye = await channel.send(message_texte)
 
-        except Exception as e:
-            await interaction.followup.send(f"❌ Erreur lors de l'envoi : {e}", ephemeral=True)
+                    # Ajoute les réactions
+                    for emoji in emojis:
+                        await message_envoye.add_reaction(emoji)
 
+                    # Stocke les associations emoji <-> rôle ID
+                    bot: commands.Bot = interaction.client
+                    if not hasattr(bot, "reaction_roles"):
+                        bot.reaction_roles = {}
 
+                    # Transformation des mentions en ID
+                    role_ids = [int(r.strip().replace("<@&", "").replace(">", "")) for r in roles]
+                    bot.reaction_roles[message_envoye.id] = dict(zip(emojis, role_ids))
 
+                    await interaction_modal.response.send_message("Message envoyé avec succès !", ephemeral=True)
 
+                except Exception as e:
+                    if not interaction_modal.response.is_done():
+                        await interaction_modal.response.send_message(f"Erreur dans le modal : {e}", ephemeral=True)
 
+        await interaction.response.send_modal(ModalReactionRole())
 
-@tree.command(name="reaction_role", description="Créer un message avec plusieurs rôles par réaction (via Modal)")
-@app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(salon="Salon où envoyer le message avec les réactions")
-async def reaction_role(interaction: discord.Interaction, salon: discord.TextChannel):
-    try:
-        await interaction.response.send_modal(ReactionRoleModal())
     except Exception as e:
-        await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"Erreur : {e}", ephemeral=True)
+
+
+
+
+
+
+
+
 
 
 
