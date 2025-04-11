@@ -146,7 +146,6 @@ class MyBot(commands.Bot):
 
         # 📛 Destinataires des messages de détresse
         self.sos_receivers = []  # Liste de rôles ou IDs utilisateurs
-        self.sos_receivers = []
         self.missions_secretes = {}
         self.categories_crees = {}
         self.evenement_config = {}
