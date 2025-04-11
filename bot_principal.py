@@ -1647,6 +1647,30 @@ class HelpButtons(View):
             await sauvegarder_json_async(HELP_REQUEST_FILE, categories_crees)
         await interaction.response.send_message("✅ Le problème a été marqué comme résolu. La catégorie a été supprimée.", ephemeral=True)
 
+
+@tree.command(name="set_channel_journal", description="Définit le salon autorisé pour écrire dans le journal de focus (admin)")
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(channel="Salon autorisé")
+async def set_channel_journal(interaction: discord.Interaction, channel: discord.TextChannel):
+    bot.journal_focus_channel = str(channel.id)
+    await interaction.response.send_message(f"✅ Salon de journal défini : {channel.mention}", ephemeral=True)
+
+
+
+@tree.command(name="journal_focus", description="Écris dans ton journal de focus (réflexions, engagement, etc.)")
+async def journal_focus(interaction: discord.Interaction, texte: str):
+    if bot.journal_focus_channel and str(interaction.channel.id) != str(bot.journal_focus_channel):
+        await interaction.response.send_message("❌ Cette commande n’est pas autorisée ici.", ephemeral=True)
+        return
+    try:
+        await interaction.response.send_message("✅ Merci ! Ton message a été enregistré.", ephemeral=True)
+        await interaction.channel.send(f"📝 Journal de {interaction.user.mention} :\n```{texte}```")
+    except Exception as e:
+        await interaction.followup.send(f"❌ Erreur : {e}", ephemeral=True)
+
+
+
+
 # ========================================
 # 🧩 Commande : /reaction_role — message avec plusieurs rôles par réaction
 # ========================================
