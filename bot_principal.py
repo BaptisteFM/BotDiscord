@@ -1752,6 +1752,20 @@ class LegacyCog(commands.Cog):
 async def setup_legacy(bot: commands.Bot):
     await bot.add_cog(LegacyCog(bot))
 
+
+
+
+# ==============================================================================
+# Commande ADMIN : /set_channel_stats
+# ==============================================================================
+@tree.command(name="set_channel_stats", description="Définit le salon pour les stats hebdomadaires (admin)")
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(channel="Salon où seront postées les stats chaque semaine")
+async def set_channel_stats(interaction: discord.Interaction, channel: discord.TextChannel):
+    bot.weekly_stats_channel = str(channel.id)
+    await interaction.response.send_message(f"✅ Salon défini pour les stats hebdo : {channel.mention}", ephemeral=True)
+    
+
 # ==============================================================================
 # FONCTIONNALITÉS AJOUTÉES POUR AMÉLIORER L'EXPÉRIENCE
 # ==============================================================================
@@ -1926,12 +1940,4 @@ async def main():
 
 asyncio.run(main())
 
-# ==============================================================================
-# Commande ADMIN : /set_channel_stats
-# ==============================================================================
-@tree.command(name="set_channel_stats", description="Définit le salon pour les stats hebdomadaires (admin)")
-@app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(channel="Salon où seront postées les stats chaque semaine")
-async def set_channel_stats(interaction: discord.Interaction, channel: discord.TextChannel):
-    bot.weekly_stats_channel = str(channel.id)
-    await interaction.response.send_message(f"✅ Salon défini pour les stats hebdo : {channel.mention}", ephemeral=True)
+
