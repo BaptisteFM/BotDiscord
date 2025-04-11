@@ -1838,7 +1838,7 @@ class HelpButtons(View):
 # ========================================
 # 🧩 Commande : /reaction_role — message avec plusieurs rôles par réaction
 # ========================================
-class MultiReactionRoleModal(Modal, title="🔧 Créer un message avec plusieurs rôles par réaction"):
+class MultiReactionRoleModal(Modal, title="🔧 Message à rôles multiples"):
     def __init__(self, salon: discord.TextChannel):
         super().__init__(timeout=None)
         self.salon = salon
@@ -1847,14 +1847,14 @@ class MultiReactionRoleModal(Modal, title="🔧 Créer un message avec plusieurs
             style=TextStyle.paragraph,
             required=True,
             max_length=2000,
-            placeholder="Écris ici le message à poster avec les réactions (avec sauts de ligne)"
+            placeholder="Écris ici le message à poster avec les réactions"
         )
         self.reactions = TextInput(
-            label="Liste des réactions et rôles",
+            label="Réactions et rôles (emoji = @rôle)",
             style=TextStyle.paragraph,
             required=True,
             max_length=1000,
-            placeholder="Format : 😊 = @Rôle1\n🔥 = @Rôle2\n..."
+            placeholder="😊 = @Rôle1\n🔥 = @Rôle2\n..."
         )
         self.add_item(self.message_content)
         self.add_item(self.reactions)
@@ -1881,6 +1881,7 @@ class MultiReactionRoleModal(Modal, title="🔧 Créer un message avec plusieurs
             await interaction.followup.send(f"✅ Message envoyé dans {self.salon.mention} avec les réactions définies.", ephemeral=True)
         except Exception as e:
             await interaction.followup.send(f"❌ Erreur lors de l'envoi : {e}", ephemeral=True)
+
 
 
 @tree.command(name="reaction_role", description="Créer un message avec plusieurs rôles par réaction (via Modal)")
