@@ -36,6 +36,8 @@ THEME_CONFIG_FILE = os.path.join(DATA_FOLDER, "themes.json")
 MISSIONS_FILE = os.path.join(DATA_FOLDER, "missions_secretes.json")
 CALENDRIER_FILE = os.path.join(DATA_FOLDER, "evenements_calendrier.json")
 HELP_REQUEST_FILE = os.path.join(DATA_FOLDER, "help_requests.json")
+REACTION_ROLE_FILE = os.path.join(DATA_FOLDER, "reaction_roles.json")
+
 
 
 
@@ -1839,7 +1841,6 @@ class HelpButtons(View):
 # 🧩 Commande : /reaction_role — message avec plusieurs rôles par réaction
 # ========================================
 
-
 # ----------------------------------------------------
 # Commande admin : /reaction_role_avec_message
 # Envoie un message avec des réactions + rôles associés
@@ -1853,13 +1854,15 @@ async def reaction_role_avec_message(interaction: discord.Interaction, salon: di
             await interaction.response.send_message("Cette commande ne peut être utilisée que dans un serveur.", ephemeral=True)
             return
 
+        # Séparation et nettoyage des entrées emojis et rôles
         emojis_liste = [e.strip() for e in emojis.split(",")]
         roles_liste = [r.strip() for r in roles.split(",")]
 
         if len(emojis_liste) != len(roles_liste):
-            await interaction.response.send_message("Le nombre d'emojis et de rôles doit être le même.", ephemeral=True)
+            await interaction.response.send_message("❌ Le nombre d'emojis et de rôles doit être le même.", ephemeral=True)
             return
 
+        # Stockage temporaire pour transfert au modal
         interaction.client.temp_reaction_data = {
             "channel": salon,
             "emojis": emojis_liste,
@@ -1867,10 +1870,13 @@ async def reaction_role_avec_message(interaction: discord.Interaction, salon: di
             "user_id": interaction.user.id
         }
 
+        # ----------------------------
+        # Modal pour saisir le message
+        # ----------------------------
         class ModalReactionRole(discord.ui.Modal, title="Texte du message à envoyer"):
             message = discord.ui.TextInput(
-                label="Contenu du message", 
-                style=discord.TextStyle.paragraph, 
+                label="Contenu du message",
+                style=discord.TextStyle.paragraph,
                 required=True,
                 max_length=4000
             )
@@ -1889,18 +1895,20 @@ async def reaction_role_avec_message(interaction: discord.Interaction, salon: di
                     roles = data["roles"]
                     message_texte = self.message.value
 
+                    # Envoi du message avec réactions
                     message_envoye = await channel.send(message_texte)
-
                     for emoji in emojis:
                         await message_envoye.add_reaction(emoji)
 
+                    # Résolution des rôles
                     bot: commands.Bot = interaction.client
                     if not hasattr(bot, "reaction_roles"):
                         bot.reaction_roles = {}
+
                     role_ids = []
                     for role_str in roles:
                         role_str = role_str.strip()
-                        if role_str.startswith("<@&"):  # Mention de rôle
+                        if role_str.startswith("<@&"):  # Format mention
                             role_id = int(role_str.replace("<@&", "").replace(">", ""))
                             role_ids.append(role_id)
                         else:  # Nom du rôle
@@ -1910,9 +1918,12 @@ async def reaction_role_avec_message(interaction: discord.Interaction, salon: di
                             else:
                                 await interaction_modal.followup.send(f"❌ Rôle introuvable : `{role_str}`", ephemeral=True)
                                 return
-                    bot.reaction_roles[message_envoye.id] = dict(zip(emojis, role_ids))
 
-                    await interaction_modal.followup.send("✅ Message envoyé avec succès !", ephemeral=True)
+                    # Enregistrement dans le bot + JSON
+                    bot.reaction_roles[str(message_envoye.id)] = dict(zip(emojis, role_ids))
+                    await sauvegarder_json_async(REACTION_ROLE_FILE, bot.reaction_roles)
+
+                    await interaction_modal.followup.send("✅ Message envoyé avec succès et réactions enregistrées !", ephemeral=True)
 
                 except Exception as e:
                     await interaction_modal.followup.send(f"❌ Erreur dans le modal : {e}", ephemeral=True)
@@ -1938,43 +1949,51 @@ async def reaction_role_avec_message(interaction: discord.Interaction, salon: di
 
 
 
+
 # ========================================
 # Fonction main – Chargement des données et lancement du bot
 # ========================================
 async def main():
-    global xp_data, messages_programmes, defis_data, config_pomodoro, objectifs_data, sos_config, evenement_config, theme_config, missions_secretes, evenements_calendrier
+    global xp_data, messages_programmes, defis_data, config_pomodoro, objectifs_data
+    global sos_config, evenement_config, theme_config, missions_secretes, evenements_calendrier
+
     try:
-        # Charger les données JSON existantes
+        # Chargement des données JSON persistantes
         xp_data = await charger_json_async(XP_FILE)
         messages_programmes = await charger_json_async(MSG_FILE)
         defis_data = await charger_json_async(DEFIS_FILE)
         config_pomodoro = await charger_json_async(POMODORO_CONFIG_FILE)
         objectifs_data = await charger_json_async(GOALS_FILE)
         sos_config = await charger_json_async(SOS_CONFIG_FILE)
-        bot.sos_receivers = sos_config.get("receivers", [])
         evenement_config = await charger_json_async(EVENEMENT_CONFIG_FILE)
         theme_config = await charger_json_async(THEME_CONFIG_FILE)
         missions_secretes = await charger_json_async(MISSIONS_FILE)
         evenements_calendrier = await charger_json_async(CALENDRIER_FILE)
         categories_crees = await charger_json_async(HELP_REQUEST_FILE)
-        
-        # Charger les nouvelles configurations spécifiques
+        bot.reaction_roles = await charger_json_async(REACTION_ROLE_FILE)
+
+        # Attribution des données au bot pour accès dans les extensions
+        bot.sos_receivers = sos_config.get("receivers", [])
         bot.evenement_config = evenement_config
         bot.theme_config = theme_config
         bot.missions_secretes = missions_secretes
         bot.evenements_calendrier = evenements_calendrier
+        bot.categories_aide = categories_crees
 
     except Exception as e:
-        print(f"❌ Erreur lors du chargement des données: {e}")
-    
-    await setup_admin_utils(bot)
-    await setup_autodm(bot)
-    await setup_moderation(bot)
+        print(f"❌ Erreur lors du chargement des données : {e}")
 
+    # Chargement des modules/commandes externes
+    await setup_admin_utils(bot)      # Commandes admin générales
+    await setup_autodm(bot)           # Système d’AutoDM
+    await setup_moderation(bot)       # Commandes de modération
+
+    # Lancement du bot
     try:
         await bot.start(os.getenv("DISCORD_TOKEN"))
     except Exception as e:
         print(f"❌ Erreur critique au lancement du bot : {e}")
+
 
     
 
