@@ -1,1 +1,0 @@
-start: python3 bot_principal.py & python3 bot_moderation.py
