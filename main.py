@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 # -------------------------------------------
 # Import et lancement du serveur keep-alive
+# (Ce fichier "keep_alive.py" doit être à la racine)
 # -------------------------------------------
 from keep_alive import keep_alive
 keep_alive()  # Lance le serveur HTTP keep-alive sur le port par défaut (10000)
@@ -33,7 +34,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     print(f"✅ Connecté en tant que {bot.user} (ID : {bot.user.id})")
     try:
-        synced = await bot.tree.sync()  # Synchronisation globale
+        # Synchronisation globale des commandes slash (peut prendre quelques minutes à apparaître sur Discord)
+        synced = await bot.tree.sync()
         print(f"✅ {len(synced)} commandes slash synchronisées globalement.")
     except Exception as e:
         print(f"❌ Erreur de synchronisation des commandes slash : {e}")
@@ -46,7 +48,6 @@ async def load_cogs():
     from commands.utilisateur import setup_user_commands
     from commands.support import setup_support_commands
 
-    await bot.wait_until_ready()
     await setup_admin_commands(bot)
     await setup_user_commands(bot)
     await setup_support_commands(bot)
