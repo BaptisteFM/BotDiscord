@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from utils.utils import salon_est_autorise, is_admin, get_or_create_role, get_redirection, charger_config
 import datetime
+import random
 
 class SupportCommands(commands.Cog):
     def __init__(self, bot):
@@ -14,58 +15,76 @@ class SupportCommands(commands.Cog):
         if not await salon_est_autorise("besoin_d_aide", interaction.channel_id, interaction.user):
             return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
 
-        # Définir le modal qui sera ouvert
         class BesoinAideModal(discord.ui.Modal, title="Décris ton besoin d'aide"):
-            sujet = discord.ui.TextInput(label="Sujet", placeholder="Ex: Difficultés en anatomie", required=True)
-            description = discord.ui.TextInput(label="Détails", placeholder="Explique ton problème en détail", style=discord.TextStyle.paragraph, required=True)
+            sujet = discord.ui.TextInput(
+                label="Sujet",
+                placeholder="Ex: Difficultés en anatomie",
+                required=True,
+                max_length=100
+            )
+            description = discord.ui.TextInput(
+                label="Détails",
+                placeholder="Explique ton problème en détail",
+                style=discord.TextStyle.paragraph,
+                required=True,
+                max_length=400
+            )
 
-            async def on_submit(modal_interaction: discord.Interaction):
+            async def on_submit(self, modal_interaction: discord.Interaction):
                 await modal_interaction.response.defer(ephemeral=True)
 
-                user = modal_interaction.user
-                guild = modal_interaction.guild
+                try:
+                    user = modal_interaction.user
+                    guild = modal_interaction.guild
 
-                # Rôle temporaire
-                role_temp = await get_or_create_role(guild, f"Aide-{user.name}")
-                await user.add_roles(role_temp)
+                    # Rôle temporaire
+                    role_temp = await get_or_create_role(guild, f"Aide-{user.name}")
+                    await user.add_roles(role_temp)
 
-                # Rôle d'aide défini par l'admin
-                config = charger_config()
-                role_aide_id = config.get("role_aide")
-                role_aide = guild.get_role(int(role_aide_id)) if role_aide_id else None
+                    # Rôle d’aide configuré
+                    from utils.utils import charger_config
+                    config = charger_config()
+                    role_aide_id = config.get("role_aide")
+                    role_aide = guild.get_role(int(role_aide_id)) if role_aide_id else None
 
-                # Overwrites pour la catégorie privée
-                overwrites = {
-                    guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                    role_temp: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-                }
-                if role_aide:
-                    overwrites[role_aide] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+                    # Overwrites
+                    overwrites = {
+                        guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                        role_temp: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+                    }
+                    if role_aide:
+                        overwrites[role_aide] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
-                category = await guild.create_category(f"aide-{user.name}".lower(), overwrites=overwrites)
-                text_channel = await guild.create_text_channel("écris-ici", category=category)
-                await guild.create_voice_channel("parle-ici", category=category)
+                    category = await guild.create_category(f"aide-{user.name}".lower(), overwrites=overwrites)
+                    text_channel = await guild.create_text_channel("écris-ici", category=category)
+                    await guild.create_voice_channel("parle-ici", category=category)
 
-                # Embed dans le salon public
-                embed = discord.Embed(
-                    title=f"🆘 Demande d'aide : {self.sujet.value}",
-                    description=self.description.value,
-                    color=discord.Color.orange(),
-                    timestamp=datetime.datetime.utcnow()
-                )
-                embed.set_footer(text=f"Demandée par {user.display_name}")
-                view = AideView(user, category, role_temp)
-                await interaction.channel.send(embed=embed, view=view)
+                    # Embed public
+                    embed = discord.Embed(
+                        title=f"🆘 Demande d'aide : {self.sujet.value}",
+                        description=self.description.value,
+                        color=discord.Color.orange(),
+                        timestamp=datetime.datetime.utcnow()
+                    )
+                    embed.set_footer(text=f"Demandée par {user.display_name}")
+                    view = AideView(user, category, role_temp)
+                    await interaction.channel.send(embed=embed, view=view)
 
-                # Message dans la catégorie privée
-                if role_aide:
-                    await text_channel.send(f"🔔 {role_aide.mention}, une demande d’aide a été créée par {user.mention}.\n\n"
-                                            f"**Sujet :** {self.sujet.value}\n"
-                                            f"**Détails :** {self.description.value}")
+                    # Message dans le privé
+                    if role_aide:
+                        await text_channel.send(
+                            f"🔔 {role_aide.mention}, une demande d’aide a été créée par {user.mention}.\n\n"
+                            f"**Sujet :** {self.sujet.value}\n"
+                            f"**Détails :** {self.description.value}"
+                        )
 
-                await modal_interaction.followup.send("✅ Ta demande d'aide a bien été envoyée et ton espace privé a été créé.", ephemeral=True)
+                    await modal_interaction.followup.send("✅ Espace privé créé et demande envoyée.", ephemeral=True)
 
-        await interaction.response.send_modal(BesoinAideModal())
+                except Exception as e:
+                    await modal_interaction.followup.send(f"❌ Erreur : {e}", ephemeral=True)
+
+        await interaction.response.send_modal(BesoinAideModal(timeout=None))
+
 
 # ───────────── Vue interactive avec boutons ─────────────
 class AideView(discord.ui.View):
