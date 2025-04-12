@@ -14,8 +14,10 @@ def charger_config():
         return json.load(f)
 
 def sauvegarder_config(data):
+    os.makedirs("data", exist_ok=True)  # 🔧 Crée le dossier s'il n'existe pas
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
+
 
 # ========== Admin Check ==========
 async def is_admin(user: discord.User | discord.Member) -> bool:
