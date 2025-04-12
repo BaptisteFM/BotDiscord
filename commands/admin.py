@@ -12,7 +12,9 @@ from utils.utils import (
     definir_option_config,
     load_reaction_role_mapping,
     save_reaction_role_mapping,
-    charger_config
+    charger_config,
+    sauvegarder_config,
+    charger,config
 )
 
 class AdminCommands(commands.Cog):
@@ -176,14 +178,16 @@ class AdminCommands(commands.Cog):
     @app_commands.command(name="definir_log_erreurs", description="Définit le salon de logs d’erreurs techniques.")
     @app_commands.describe(salon="Salon où envoyer les erreurs (réservé aux admins)")
     async def definir_log_erreurs(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        if not await is_admin(interaction.user):
+            return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
         try:
-            if not await is_admin(interaction.user):
-                return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
-            definir_option_config("log_erreurs_channel", str(salon.id))
+            config = charger_config()
+            config["log_erreurs_channel"] = str(salon.id)
+            sauvegarder_config(config)
             await interaction.response.send_message(f"✅ Salon de logs d’erreurs défini : {salon.mention}", ephemeral=True)
         except Exception as e:
-            await self.log_erreur(interaction, e)
-            await interaction.response.send_message("❌ Erreur lors de la configuration du salon de logs.", ephemeral=True)
+            await interaction.response.send_message(f"❌ Erreur lors de la configuration du salon de logs : {e}", ephemeral=True)
+
 
 
 async def setup_admin_commands(bot):
