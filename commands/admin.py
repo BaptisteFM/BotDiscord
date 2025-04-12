@@ -338,26 +338,46 @@ class AdminCommands(commands.Cog):
         else:
             await interaction.response.send_message("ℹ️ Cet utilisateur est déjà dans la whitelist.", ephemeral=True)
 
-    # === Mise à jour de la commande retirer_whitelist ===
-    @app_commands.command(name="retirer_whitelist", description="Retire un utilisateur de la whitelist et réinitialise son statut.")
-    @app_commands.default_permissions(administrator=True)
-    async def retirer_whitelist(self, interaction: discord.Interaction, utilisateur: discord.Member):
-        if not await is_admin(interaction.user):
-            return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
-        whitelist = self.charger_whitelist()
-        if utilisateur.id in whitelist:
-            whitelist.remove(utilisateur.id)
-            self.sauvegarder_whitelist(whitelist)
-            # Retrait du rôle "Membre" et affectation du rôle "Non vérifié"
-            role_membre = discord.utils.get(interaction.guild.roles, name="Membre")
-            role_non_verifie = discord.utils.get(interaction.guild.roles, name="Non vérifié")
-            if role_membre and role_membre in utilisateur.roles:
-                await utilisateur.remove_roles(role_membre)
-            if role_non_verifie and role_non_verifie not in utilisateur.roles:
-                await utilisateur.add_roles(role_non_verifie)
-            await interaction.response.send_message(f"✅ {utilisateur.mention} a été retiré de la whitelist et son statut a été réinitialisé.", ephemeral=True)
-        else:
-            await interaction.response.send_message("ℹ️ Cet utilisateur n'est pas dans la whitelist.", ephemeral=True)
+@app_commands.command(name="retirer_whitelist", description="Retire un utilisateur de la whitelist et réinitialise son statut.")
+@app_commands.default_permissions(administrator=True)
+async def retirer_whitelist(self, interaction: discord.Interaction, utilisateur: discord.Member):
+    # Vérification que la commande est lancée par un admin
+    if not await is_admin(interaction.user):
+        return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+    
+    # Utilisation des fonctions de whitelist approuvée depuis utils
+    from utils.utils import charger_whitelist, sauvegarder_whitelist
+    
+    # Charger la whitelist approuvée (stockée dans "data/whitelist.json")
+    approved = await interaction.client.loop.run_in_executor(None, charger_whitelist)
+    
+    # Recherche de l'entrée correspondante à l'utilisateur dans la whitelist (stockée comme dict)
+    found_entry = None
+    for entry in approved:
+        if entry.get("user_id") == str(utilisateur.id):
+            found_entry = entry
+            break
+
+    if found_entry:
+        # Supprime l'entrée trouvée et sauvegarde la whitelist mise à jour
+        approved.remove(found_entry)
+        await interaction.client.loop.run_in_executor(None, sauvegarder_whitelist, approved)
+        
+        # Réinitialisation des rôles : Retirer "Membre" et ajouter "Non vérifié"
+        role_membre = discord.utils.get(interaction.guild.roles, name="Membre")
+        role_non_verifie = discord.utils.get(interaction.guild.roles, name="Non vérifié")
+        if role_membre and role_membre in utilisateur.roles:
+            await utilisateur.remove_roles(role_membre)
+        if role_non_verifie and role_non_verifie not in utilisateur.roles:
+            await utilisateur.add_roles(role_non_verifie)
+            
+        await interaction.response.send_message(
+            f"✅ {utilisateur.mention} a été retiré de la whitelist et son statut a été réinitialisé.",
+            ephemeral=True
+        )
+    else:
+        await interaction.response.send_message("ℹ️ Cet utilisateur n'est pas dans la whitelist.", ephemeral=True)
+
 
     @app_commands.command(name="valider_utilisateur", description="Valide un nouvel utilisateur en modifiant ses rôles.")
     @app_commands.default_permissions(administrator=True)
