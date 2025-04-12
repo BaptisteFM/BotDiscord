@@ -3,7 +3,12 @@ from discord import app_commands
 from discord.ext import commands
 import datetime
 import random
-from utils.utils import charger_config, log_erreur
+from utils.utils import charger_config, log_erreur, is_verified_user
+
+async def check_verified(interaction: discord.Interaction) -> bool:
+    if await is_verified_user(interaction.user):
+        return True
+    raise app_commands.CheckFailure("Commande réservée aux membres vérifiés.")
 
 # ───────────── Modal pour le journal burnout ─────────────
 class JournalBurnoutModal(discord.ui.Modal, title="Journal Burn-Out"):
@@ -22,7 +27,6 @@ class JournalBurnoutModal(discord.ui.Modal, title="Journal Burn-Out"):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            # Récupération de la configuration pour le salon dédié aux signalements burnout
             config = charger_config()
             burnout_channel_id = config.get("journal_burnout_channel")
             if not burnout_channel_id:
@@ -34,14 +38,12 @@ class JournalBurnoutModal(discord.ui.Modal, title="Journal Burn-Out"):
                 await interaction.response.send_message("❌ Le salon pour le journal burnout est introuvable.", ephemeral=True)
                 return
 
-            # Choix de l'emoji : utilise celui fourni ou en sélectionne un aléatoirement
             if self.emoji.value.strip():
                 emoji_used = self.emoji.value.strip()
             else:
                 emoji_options = ["😞", "😔", "😢", "😴", "😓", "💤"]
                 emoji_used = random.choice(emoji_options)
 
-            # Création d'un embed pour afficher le signalement
             embed = discord.Embed(
                 title="🚨 Signalement de Burn-Out",
                 description=self.message.value,
@@ -51,7 +53,6 @@ class JournalBurnoutModal(discord.ui.Modal, title="Journal Burn-Out"):
             embed.add_field(name="État", value=emoji_used, inline=True)
             embed.set_footer(text="Signalé anonymement")
             
-            # Envoi du signalement dans le salon réservé aux tuteurs/admins
             await channel.send(embed=embed)
             await interaction.response.send_message("✅ Ton signalement a été envoyé. Prends soin de toi.", ephemeral=True)
         except Exception as e:
@@ -64,6 +65,7 @@ class SupportCommands(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="journal_burnout", description="Signale anonymement une baisse de moral, une fatigue mentale ou un burn-out.")
+    @app_commands.check(check_verified)
     async def journal_burnout(self, interaction: discord.Interaction):
         try:
             await interaction.response.send_modal(JournalBurnoutModal())

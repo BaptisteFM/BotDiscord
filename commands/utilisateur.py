@@ -2,12 +2,12 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import random
-from utils.utils import (
-    salon_est_autorise,
-    get_or_create_role,
-    charger_config,
-    log_erreur
-)
+from utils.utils import salon_est_autorise, get_or_create_role, charger_config, log_erreur, is_verified_user
+
+async def check_verified(interaction: discord.Interaction) -> bool:
+    if await is_verified_user(interaction.user):
+        return True
+    raise app_commands.CheckFailure("Commande réservée aux membres vérifiés.")
 
 class UtilisateurCommands(commands.Cog):
     def __init__(self, bot):
@@ -31,6 +31,7 @@ class UtilisateurCommands(commands.Cog):
 
     @app_commands.command(name="conseil_methodo", description="Pose une question méthodo (public).")
     @app_commands.describe(question="Quelle est ta question méthodo ?")
+    @app_commands.check(check_verified)
     async def conseil_methodo(self, interaction: discord.Interaction, question: str):
         if not await self.check_salon(interaction, "conseil_methodo"):
             return
@@ -43,6 +44,7 @@ class UtilisateurCommands(commands.Cog):
             await log_erreur(self.bot, interaction.guild, f"Erreur dans /conseil_methodo : {e}")
 
     @app_commands.command(name="conseil_aleatoire", description="Donne un conseil de travail aléatoire.")
+    @app_commands.check(check_verified)
     async def conseil_aleatoire(self, interaction: discord.Interaction):
         if not await self.check_salon(interaction, "conseil_aleatoire"):
             return
@@ -53,6 +55,7 @@ class UtilisateurCommands(commands.Cog):
             await log_erreur(self.bot, interaction.guild, f"Erreur dans /conseil_aleatoire : {e}")
 
     @app_commands.command(name="ressources", description="Liste des ressources utiles.")
+    @app_commands.check(check_verified)
     async def ressources(self, interaction: discord.Interaction):
         if not await self.check_salon(interaction, "ressources"):
             return
@@ -70,6 +73,7 @@ class UtilisateurCommands(commands.Cog):
             await log_erreur(self.bot, interaction.guild, f"Erreur dans /ressources : {e}")
 
     @app_commands.command(name="mission_du_jour", description="Obtiens un mini-défi pour la journée.")
+    @app_commands.check(check_verified)
     async def mission_du_jour(self, interaction: discord.Interaction):
         if not await self.check_salon(interaction, "mission_du_jour"):
             return
@@ -87,6 +91,7 @@ class UtilisateurCommands(commands.Cog):
 
     @app_commands.command(name="checkin", description="Exprime ton humeur avec un emoji.")
     @app_commands.describe(humeur="Ex: 😀, 😞, 😴, etc.")
+    @app_commands.check(check_verified)
     async def checkin(self, interaction: discord.Interaction, humeur: str):
         if not await self.check_salon(interaction, "checkin"):
             return
@@ -96,6 +101,7 @@ class UtilisateurCommands(commands.Cog):
             await log_erreur(self.bot, interaction.guild, f"Erreur dans /checkin : {e}")
 
     @app_commands.command(name="cours_aide", description="Demande d'aide sur un cours via modal.")
+    @app_commands.check(check_verified)
     async def cours_aide(self, interaction: discord.Interaction):
         if not await self.check_salon(interaction, "cours_aide"):
             return
@@ -114,22 +120,18 @@ class UtilisateurCommands(commands.Cog):
             )
 
             async def on_submit(self, modal_interaction: discord.Interaction):
-                # Réponse non éphémère pour publier publiquement
                 await modal_interaction.response.defer()
                 try:
                     user = modal_interaction.user
                     guild = modal_interaction.guild
 
-                    # Création d'un rôle temporaire pour cette demande d'aide
                     temp_role = await get_or_create_role(guild, f"CoursAide-{user.name}-{user.id}")
                     await user.add_roles(temp_role)
 
-                    # Récupération du rôle d'aide configuré par l'admin
                     config = charger_config()
                     role_aide_id = config.get("role_aide")
                     role_aide = guild.get_role(int(role_aide_id)) if role_aide_id else None
 
-                    # Définition des permissions pour la catégorie
                     overwrites = {
                         guild.default_role: discord.PermissionOverwrite(read_messages=False),
                         temp_role: discord.PermissionOverwrite(read_messages=True, send_messages=True)
@@ -137,22 +139,18 @@ class UtilisateurCommands(commands.Cog):
                     if role_aide:
                         overwrites[role_aide] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
-                    # Création explicite d'une nouvelle catégorie privée
                     category_name = f"cours-aide-{user.name}-{user.id}".lower()
                     category = await guild.create_category(category_name, overwrites=overwrites)
                     
-                    # Création des salons dans la catégorie
                     discussion_channel = await guild.create_text_channel("discussion", category=category)
                     await guild.create_voice_channel("support-voice", category=category)
 
-                    # Envoi dans le salon de discussion : ping du rôle et récapitulatif de la demande
                     message_content = (
                         f"🔔 {role_aide.mention if role_aide else ''} Une demande d'aide a été créée par {user.mention} !\n"
                         f"**Cours :** {self.cours.value}\n**Détails :** {self.details.value}"
                     )
                     await discussion_channel.send(message_content)
 
-                    # Création et envoi public d'un embed récapitulatif avec vue
                     description = f"**Cours :** {self.cours.value}\n**Détails :** {self.details.value}"
                     embed = discord.Embed(title="Demande d'aide sur un cours", description=description, color=discord.Color.blue())
                     embed.set_footer(text=f"Demandée par {user.display_name}")
@@ -188,14 +186,10 @@ class CoursAideView(discord.ui.View):
         if interaction.user != self.demandeur:
             return await interaction.response.send_message("❌ Seul le demandeur peut supprimer cette demande.", ephemeral=True)
         try:
-            # Retirer le rôle temporaire de tous les membres qui l'ont
             for member in list(self.temp_role.members):
                 await member.remove_roles(self.temp_role)
-            # Supprimer le rôle temporaire de la guilde
             await self.temp_role.delete()
-            # Supprimer la catégorie privée (ce qui supprime tous ses salons)
             await self.category.delete()
-            # Supprimer le message public affiché par le bot (contenant l'embed et la vue)
             await interaction.message.delete()
             await interaction.followup.send("✅ Demande supprimée : la catégorie privée et le rôle temporaire ont été retirés.", ephemeral=True)
         except Exception as e:

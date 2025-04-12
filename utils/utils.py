@@ -16,7 +16,7 @@ def charger_config():
         return json.load(f)
 
 def sauvegarder_config(data):
-    os.makedirs("data", exist_ok=True)  # Crée le dossier s'il n'existe pas
+    os.makedirs("data", exist_ok=True)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
@@ -30,6 +30,7 @@ async def get_or_create_role(guild: discord.Guild, role_name: str) -> discord.Ro
     if role:
         return role
     try:
+        # La méthode create_role est asynchrone, donc ici on attend le résultat.
         return await guild.create_role(name=role_name, reason="Création automatique via bot")
     except Exception as e:
         raise RuntimeError(f"Erreur lors de la création du rôle '{role_name}' : {e}")
@@ -112,7 +113,7 @@ def sauvegarder_whitelist(whitelist: list):
 # ========== Logs d’erreurs dans un salon Discord ==========
 async def log_erreur(bot: discord.Client, guild: discord.Guild, message: str):
     try:
-        print(f"[ERREUR BOT] {message}")  # Affichage console pour debugging
+        print(f"[ERREUR BOT] {message}")
 
         config = charger_config()
         log_channel_id = config.get("log_erreurs_channel")
@@ -129,3 +130,44 @@ async def log_erreur(bot: discord.Client, guild: discord.Guild, message: str):
         await log_channel.send(embed=embed)
     except Exception as e:
         print(f"[ERREUR LORS DU LOG] {e}")
+
+def charger_permissions() -> dict:
+    permissions_path = "data/permissions.json"
+    if not os.path.exists(permissions_path):
+        return {}
+    with open(permissions_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def sauvegarder_permissions(permissions: dict):
+    os.makedirs("data", exist_ok=True)
+    with open("data/permissions.json", "w", encoding="utf-8") as f:
+        json.dump(permissions, f, indent=4)
+
+def role_autorise(interaction: discord.Interaction, commande: str) -> bool:
+    permissions_path = "data/permissions.json"
+    if not os.path.exists(permissions_path):
+        return False
+    with open(permissions_path, "r", encoding="utf-8") as f:
+        permissions = json.load(f)
+    roles_autorises = permissions.get(commande, [])
+    return any(str(role.id) in roles_autorises for role in interaction.user.roles)
+
+# ========== Vérification du statut de membre (vérifié / non vérifié) ==========
+async def is_verified_user(member: discord.Member) -> bool:
+    if member.guild_permissions.administrator:
+        return True
+    config = charger_config()
+    role_id = config.get("role_acces_utilisateur")
+    if role_id:
+        role = member.guild.get_role(int(role_id))
+        if role and role in member.roles:
+            return True
+    return False
+
+async def is_non_verified_user(member: discord.Member) -> bool:
+    if member.guild_permissions.administrator:
+        return False
+    non_verified = discord.utils.get(member.guild.roles, name="Non vérifié")
+    if non_verified and non_verified in member.roles:
+        return True
+    return False

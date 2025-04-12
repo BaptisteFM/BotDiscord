@@ -6,7 +6,6 @@ from utils.utils import log_erreur
 
 WHITELIST_PATH = "data/whitelist.json"
 
-# ========== FONCTIONS JSON ==========
 def charger_whitelist():
     if not os.path.exists(WHITELIST_PATH):
         return []
@@ -18,7 +17,6 @@ def sauvegarder_whitelist(whitelist):
     with open(WHITELIST_PATH, "w", encoding="utf-8") as f:
         json.dump(whitelist, f, indent=4)
 
-# ========== COG DES ÉVÉNEMENTS ==========
 class WhitelistEvents(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -44,6 +42,5 @@ class WhitelistEvents(commands.Cog):
         except Exception as e:
             await log_erreur(self.bot, member.guild, f"on_member_join : {e}")
 
-# ========== SETUP ==========
 async def setup(bot):
     await bot.add_cog(WhitelistEvents(bot))
