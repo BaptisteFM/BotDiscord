@@ -9,7 +9,7 @@ from utils.utils import is_admin, charger_config, sauvegarder_config, log_erreur
 # Chemin du fichier stockant les demandes (en attente)
 DEMANDES_PATH = "data/demandes_whitelist.json"
 
-# Check : seuls les membres non validés (n'ayant pas encore passé la whitelist) peuvent demander l'accès
+# Check : seuls les membres non validés peuvent demander l'accès
 async def check_non_verified(interaction: discord.Interaction) -> bool:
     if await is_non_verified_user(interaction.user):
         return True
@@ -42,12 +42,14 @@ class DemandeAccesModal(discord.ui.Modal, title="Demande d'accès au serveur"):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
+            # Délai de réponse immédiat pour éviter les timeouts
             await interaction.response.defer(ephemeral=True)
-            # On enregistre la demande avec nom et prénom
+            # Récupération du cog whitelist
             cog = self.bot.get_cog("whitelist")
             if cog is None:
                 await interaction.followup.send("❌ Erreur interne, le cog whitelist est introuvable.", ephemeral=True)
                 return
+            # Mettez à jour la demande si elle existe déjà, sinon ajoutez-la
             await cog.ajouter_demande(self.user_id, datetime.utcnow().isoformat(), self.nom.value, self.prenom.value)
 
             embed = discord.Embed(
@@ -87,17 +89,25 @@ class Whitelist(commands.Cog, name="whitelist"):
     async def sauvegarder_demandes(self, data):
         await self.bot.loop.run_in_executor(None, lambda: _sauvegarder_demandes(data))
 
-    # Ajoute une demande avec user_id, timestamp, nom et prénom
+    # Ajoute ou met à jour une demande avec user_id, timestamp, nom et prénom
     async def ajouter_demande(self, user_id, timestamp, nom, prenom):
         demandes = await self.charger_demandes()
-        if any(str(user_id) == str(d["user_id"]) for d in demandes):
-            return
-        demandes.append({
-            "user_id": str(user_id),
-            "timestamp": timestamp,
-            "nom": nom,
-            "prenom": prenom
-        })
+        # Si le membre a déjà une demande, on met à jour ses informations
+        updated = False
+        for d in demandes:
+            if str(user_id) == str(d["user_id"]):
+                d["timestamp"] = timestamp
+                d["nom"] = nom
+                d["prenom"] = prenom
+                updated = True
+                break
+        if not updated:
+            demandes.append({
+                "user_id": str(user_id),
+                "timestamp": timestamp,
+                "nom": nom,
+                "prenom": prenom
+            })
         await self.sauvegarder_demandes(demandes)
 
     async def supprimer_demande(self, user_id):
@@ -148,7 +158,7 @@ class Whitelist(commands.Cog, name="whitelist"):
         sauvegarder_config(config)
         await interaction.response.send_message("✅ Message de validation enregistré avec succès.", ephemeral=True)
 
-    # Rappel périodique des demandes (affiche nom et prénom dans le rappel)
+    # Rappel périodique des demandes avec affichage du nom et prénom
     @tasks.loop(minutes=60)
     async def rappel_demande(self):
         try:
@@ -175,18 +185,23 @@ class Whitelist(commands.Cog, name="whitelist"):
     # Nouvelle commande pour rechercher dans la whitelist approuvée
     @app_commands.command(name="rechercher_whitelist", description="Recherche un utilisateur dans la whitelist par nom ou prénom.")
     async def rechercher_whitelist(self, interaction: discord.Interaction, query: str):
-        # La commande est accessible uniquement aux admins ou aux membres autorisés via le système de permissions (definir_permission)
+        # Commande accessible seulement aux admins ou aux membres autorisés via la commande définir_permission
         if not (await is_admin(interaction.user) or role_autorise(interaction, "rechercher_whitelist")):
             return await interaction.response.send_message("❌ Vous n'avez pas la permission d'utiliser cette commande.", ephemeral=True)
         from utils.utils import charger_whitelist  # On suppose que cette fonction renvoie une liste de dicts
         approved = await interaction.client.loop.run_in_executor(None, charger_whitelist)
-        # On cherche dans les champs "nom" et "prenom"
-        matches = [entry for entry in approved if query.lower() in entry.get("nom", "").lower() or query.lower() in entry.get("prenom", "").lower()]
+        matches = [
+            entry for entry in approved 
+            if query.lower() in entry.get("nom", "").lower() or query.lower() in entry.get("prenom", "").lower()
+        ]
         if not matches:
             await interaction.response.send_message(f"❌ Aucun résultat pour '{query}'.", ephemeral=True)
             return
         result_text = "\n".join(
-            [f"ID: {entry.get('user_id')}, Nom: {entry.get('nom')}, Prénom: {entry.get('prenom')}, Validé le: {entry.get('validated')}" for entry in matches]
+            [
+                f"ID: {entry.get('user_id')}, Nom: {entry.get('nom')}, Prénom: {entry.get('prenom')}, Validé le: {entry.get('validated')}"
+                for entry in matches
+            ]
         )
         embed = discord.Embed(title="Résultats de la recherche", description=result_text, color=discord.Color.green())
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -223,7 +238,7 @@ class ValidationButtons(discord.ui.View):
             except Exception:
                 pass
 
-            # Ajoute l'utilisateur dans la whitelist approuvée avec les infos personnelles
+            # Ajoute l'utilisateur dans la whitelist approuvée avec nom et prénom
             from utils.utils import charger_whitelist, sauvegarder_whitelist
             approved = await interaction.client.loop.run_in_executor(None, charger_whitelist)
             if not any(str(user.id) == str(entry.get("user_id")) for entry in approved):
@@ -234,7 +249,8 @@ class ValidationButtons(discord.ui.View):
                     "validated": datetime.utcnow().isoformat()
                 }
                 approved.append(new_entry)
-                await interaction.client.loop.run_in_executor(None, lambda: sauvegarder_whitelist(approved))
+                # Utilisation de run_in_executor avec la fonction et ses arguments
+                await interaction.client.loop.run_in_executor(None, sauvegarder_whitelist, approved)
 
             cog = self.bot.get_cog("whitelist")
             if cog:
