@@ -85,6 +85,7 @@ async def load_cogs():
     except Exception as e:
         print(f"❌ Erreur lors du chargement des Cogs : {e}")
 
+
 # ───────────── Lancement principal ─────────────
 if __name__ == "__main__":
     async def main():
