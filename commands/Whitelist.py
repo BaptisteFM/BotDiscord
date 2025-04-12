@@ -1,23 +1,28 @@
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
-import json, os, asyncio
-from datetime import datetime, timedelta
+import json, os
+from datetime import datetime
 from utils.utils import is_admin, charger_config, sauvegarder_config, log_erreur
 
 DEMANDES_PATH = "data/demandes_whitelist.json"
 
-class Whitelist(commands.Cog):
+# ========================== COG PRINCIPAL ==========================
+
+class Whitelist(commands.Cog, name="Whitelist"):
     def __init__(self, bot):
         self.bot = bot
         self.rappel_demande.start()
 
-    # ====== Utilitaires JSON ======
+    # ========== UTILS JSON ==========
     def charger_demandes(self):
         if not os.path.exists(DEMANDES_PATH):
             return []
-        with open(DEMANDES_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        try:
+            with open(DEMANDES_PATH, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return []
 
     def sauvegarder_demandes(self, data):
         os.makedirs("data", exist_ok=True)
@@ -26,15 +31,17 @@ class Whitelist(commands.Cog):
 
     def ajouter_demande(self, user_id, timestamp):
         demandes = self.charger_demandes()
-        demandes.append({"user_id": user_id, "timestamp": timestamp})
+        if any(str(user_id) == str(d["user_id"]) for d in demandes):
+            return
+        demandes.append({"user_id": str(user_id), "timestamp": timestamp})
         self.sauvegarder_demandes(demandes)
 
     def supprimer_demande(self, user_id):
         demandes = self.charger_demandes()
-        demandes = [d for d in demandes if d["user_id"] != user_id]
-        self.sauvegarder_demandes(demandes)
+        nouvelles = [d for d in demandes if str(d["user_id"]) != str(user_id)]
+        self.sauvegarder_demandes(nouvelles)
 
-    # ====== Commande utilisateur ======
+    # ========== COMMANDE UTILISATEUR ==========
     @app_commands.command(name="demander_acces", description="Demande l'accès au serveur (réservé aux nouveaux membres)")
     async def demander_acces(self, interaction: discord.Interaction):
         try:
@@ -51,19 +58,19 @@ class Whitelist(commands.Cog):
                 color=discord.Color.blurple()
             )
             embed.set_footer(text=f"ID utilisateur : {interaction.user.id}")
-
             view = ValidationButtons(self.bot, interaction.user.id)
 
-            journal_channel = interaction.guild.get_channel(int(config.get("journal_validation_channel", 0)))
-            if journal_channel:
-                await journal_channel.send(embed=embed, view=view)
+            salon_journal = interaction.guild.get_channel(int(config.get("journal_validation_channel", 0)))
+            if salon_journal:
+                await salon_journal.send(embed=embed, view=view)
 
-            await interaction.response.send_message("✅ Votre demande a été envoyée aux administrateurs. Merci de patienter !", ephemeral=True)
+            await interaction.response.send_message("✅ Votre demande a été transmise aux administrateurs. Merci de patienter.", ephemeral=True)
+
         except Exception as e:
-            await log_erreur(self.bot, interaction.guild, f"demander_acces: {e}")
-            await interaction.response.send_message("❌ Erreur lors de la demande.", ephemeral=True)
+            await log_erreur(self.bot, interaction.guild, f"demander_acces : {e}")
+            await interaction.response.send_message("❌ Une erreur est survenue pendant la demande.", ephemeral=True)
 
-    # ====== Commandes admin ======
+    # ========== COMMANDES ADMIN ==========
     @app_commands.command(name="definir_journal_validation", description="Définit le salon où les demandes seront journalisées.")
     async def definir_journal_validation(self, interaction: discord.Interaction, salon: discord.TextChannel):
         if not await is_admin(interaction.user):
@@ -71,7 +78,7 @@ class Whitelist(commands.Cog):
         config = charger_config()
         config["journal_validation_channel"] = str(salon.id)
         sauvegarder_config(config)
-        await interaction.response.send_message(f"✅ Salon de journal défini : {salon.mention}", ephemeral=True)
+        await interaction.response.send_message(f"✅ Journal défini : {salon.mention}", ephemeral=True)
 
     @app_commands.command(name="definir_salon_rappel", description="Définit le salon où les rappels automatiques sont envoyés.")
     async def definir_salon_rappel(self, interaction: discord.Interaction, salon: discord.TextChannel):
@@ -91,7 +98,7 @@ class Whitelist(commands.Cog):
         sauvegarder_config(config)
         await interaction.response.send_message("✅ Message de validation enregistré.", ephemeral=True)
 
-    # ====== Tâche de rappel ======
+    # ========== TÂCHE DE RAPPEL ==========
     @tasks.loop(minutes=60)
     async def rappel_demande(self):
         try:
@@ -104,17 +111,18 @@ class Whitelist(commands.Cog):
                 return
 
             demandes = self.charger_demandes()
-            if not demandes:
-                return
-
-            for d in demandes:
-                user = self.bot.get_user(int(d["user_id"]))
+            for demande in demandes:
+                user = self.bot.get_user(int(demande["user_id"]))
                 if user:
-                    await salon.send(f"⏰ Rappel : {user.mention} attend toujours une validation.")
+                    try:
+                        await salon.send(f"⏰ Rappel : {user.mention} attend toujours une validation.")
+                    except:
+                        pass
         except Exception as e:
-            print(f"Erreur dans rappel_demande: {e}")
+            await log_erreur(self.bot, None, f"rappel_demande : {e}")
 
-# ====== Vue avec boutons pour accepter/refuser ======
+# ========================== BOUTONS VALIDATION ==========================
+
 class ValidationButtons(discord.ui.View):
     def __init__(self, bot, user_id):
         super().__init__(timeout=None)
@@ -130,25 +138,27 @@ class ValidationButtons(discord.ui.View):
 
             role_non_verifie = discord.utils.get(interaction.guild.roles, name="Non vérifié")
             role_membre = discord.utils.get(interaction.guild.roles, name="Membre")
-            if role_non_verifie in user.roles:
+
+            if role_non_verifie and role_non_verifie in user.roles:
                 await user.remove_roles(role_non_verifie)
-            if role_membre not in user.roles:
+            if role_membre and role_membre not in user.roles:
                 await user.add_roles(role_membre)
 
             config = charger_config()
-            message = config.get("message_validation", "Tu as été accepté ! Bienvenue sur le serveur !")
+            message = config.get("message_validation", "🎉 Tu as été accepté sur le serveur ! Bienvenue !")
             try:
                 await user.send(message)
             except:
                 pass
 
-            whitelist_cog = self.bot.get_cog("Whitelist")
-            if whitelist_cog:
-                whitelist_cog.supprimer_demande(user.id)
+            cog = self.bot.get_cog("Whitelist")
+            if cog:
+                cog.supprimer_demande(user.id)
 
             await interaction.response.send_message("✅ Utilisateur accepté.", ephemeral=True)
+
         except Exception as e:
-            await log_erreur(self.bot, interaction.guild, f"ValidationButtons accepter: {e}")
+            await log_erreur(self.bot, interaction.guild, f"ValidationButtons accepter : {e}")
             await interaction.response.send_message("❌ Erreur lors de la validation.", ephemeral=True)
 
     @discord.ui.button(label="❌ Refuser", style=discord.ButtonStyle.danger)
@@ -159,19 +169,21 @@ class ValidationButtons(discord.ui.View):
                 return await interaction.response.send_message("Utilisateur introuvable.", ephemeral=True)
 
             try:
-                await user.send("❌ Votre demande d'accès au serveur a été refusée. Contactez l'administration si besoin.")
+                await user.send("❌ Votre demande d'accès au serveur a été refusée. Contactez un admin si besoin.")
             except:
                 pass
 
-            whitelist_cog = self.bot.get_cog("Whitelist")
-            if whitelist_cog:
-                whitelist_cog.supprimer_demande(user.id)
+            cog = self.bot.get_cog("Whitelist")
+            if cog:
+                cog.supprimer_demande(user.id)
 
             await interaction.response.send_message("⛔ Utilisateur refusé.", ephemeral=True)
+
         except Exception as e:
-            await log_erreur(self.bot, interaction.guild, f"ValidationButtons refuser: {e}")
+            await log_erreur(self.bot, interaction.guild, f"ValidationButtons refuser : {e}")
             await interaction.response.send_message("❌ Erreur lors du refus.", ephemeral=True)
 
+# ========================== SETUP ==========================
 
 async def setup(bot):
     await bot.add_cog(Whitelist(bot))
