@@ -28,15 +28,17 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # -------------------------------------------
-# 3) Quand le bot est prêt
+# 3) Quand le bot est prêt (On réinitialise toutes les commandes globales)
 # -------------------------------------------
 @bot.event
 async def on_ready():
     print(f"✅ Connecté en tant que {bot.user} (ID : {bot.user.id})")
     try:
-        # Synchronisation globale des commandes slash (peut prendre quelques minutes à apparaître sur Discord)
+        # Supprimer toutes les commandes globales précédentes pour forcer la mise à jour
+        bot.tree.clear_commands(guild=None)
+        # Synchronise globalement les commandes slash (attention, cela peut prendre quelques minutes à être visible)
         synced = await bot.tree.sync()
-        print(f"✅ {len(synced)} commandes slash synchronisées globalement.")
+        print(f"✅ {len(synced)} commandes slash synchronisées globalement après réinitialisation.")
     except Exception as e:
         print(f"❌ Erreur de synchronisation des commandes slash : {e}")
 
