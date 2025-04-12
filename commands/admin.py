@@ -1,5 +1,4 @@
 import discord
-import asyncio
 from discord import app_commands
 from discord.ext import commands
 from utils.utils import (
@@ -13,7 +12,8 @@ from utils.utils import (
     load_reaction_role_mapping,
     save_reaction_role_mapping,
     charger_config,
-    sauvegarder_config
+    sauvegarder_config,
+    log_erreur  # ✅ Fonction centralisée de log
 )
 
 class AdminCommands(commands.Cog):
@@ -21,28 +21,8 @@ class AdminCommands(commands.Cog):
         self.bot = bot
         self.reaction_role_messages = load_reaction_role_mapping()
 
-    # 🔴 Fonction interne pour envoyer une erreur dans le salon de logs
-    async def log_erreur(self, interaction: discord.Interaction, error: Exception):
-        try:
-            config = charger_config()
-            channel_id = config.get("log_erreurs_channel")
-            if channel_id:
-                channel = interaction.guild.get_channel(int(channel_id))
-                if channel:
-                    embed = discord.Embed(
-                        title="⚠️ Erreur dans une commande",
-                        description=f"**Commande :** `{interaction.command.name}`\n"
-                                    f"**Utilisateur :** {interaction.user.mention}\n"
-                                    f"**Erreur :** ```{str(error)}```",
-                        color=discord.Color.red()
-                    )
-                    await channel.send(embed=embed)
-        except Exception:
-            pass
-
     # ───────────── Définir salon autorisé ─────────────
     @app_commands.command(name="definir_salon", description="Définir le salon autorisé pour une commande.")
-    @app_commands.describe(nom_commande="Nom de la commande", salon="Salon autorisé")
     async def definir_salon(self, interaction: discord.Interaction, nom_commande: str, salon: discord.TextChannel):
         try:
             if not await is_admin(interaction.user):
@@ -50,7 +30,7 @@ class AdminCommands(commands.Cog):
             definir_salon_autorise(nom_commande, salon.id)
             await interaction.response.send_message(f"✅ Salon défini pour `{nom_commande}` : {salon.mention}", ephemeral=True)
         except Exception as e:
-            await self.log_erreur(interaction, e)
+            await log_erreur(self.bot, interaction.guild, f"definir_salon\n{e}")
             await interaction.response.send_message("❌ Erreur lors de la définition du salon.", ephemeral=True)
 
     @definir_salon.autocomplete("nom_commande")
@@ -59,7 +39,8 @@ class AdminCommands(commands.Cog):
             all_commands = [cmd.name for cmd in self.bot.tree.get_commands()]
             suggestions = [app_commands.Choice(name=cmd, value=cmd) for cmd in all_commands if current.lower() in cmd.lower()]
             return suggestions[:25]
-        except:
+        except Exception as e:
+            await log_erreur(self.bot, interaction.guild, f"autocomplete_command_names\n{e}")
             return []
 
     # ───────────── Redirections / Configs / Logs ─────────────
@@ -71,7 +52,7 @@ class AdminCommands(commands.Cog):
             definir_redirection(redirection_type, salon.id)
             await interaction.response.send_message(f"✅ Redirection `{redirection_type}` → {salon.mention}", ephemeral=True)
         except Exception as e:
-            await self.log_erreur(interaction, e)
+            await log_erreur(self.bot, interaction.guild, f"definir_redirection\n{e}")
             await interaction.response.send_message("❌ Erreur lors de la redirection.", ephemeral=True)
 
     @app_commands.command(name="definir_config", description="Définir une option de configuration générique.")
@@ -82,7 +63,7 @@ class AdminCommands(commands.Cog):
             definir_option_config(option, valeur)
             await interaction.response.send_message(f"✅ Option `{option}` définie à `{valeur}`", ephemeral=True)
         except Exception as e:
-            await self.log_erreur(interaction, e)
+            await log_erreur(self.bot, interaction.guild, f"definir_config\n{e}")
             await interaction.response.send_message("❌ Erreur lors de la configuration.", ephemeral=True)
 
     @app_commands.command(name="definir_log_erreurs", description="Définit le salon de logs d’erreurs techniques.")
@@ -106,7 +87,7 @@ class AdminCommands(commands.Cog):
             role = await get_or_create_role(interaction.guild, nom_du_role)
             await interaction.response.send_message(f"✅ Rôle prêt : `{role.name}`", ephemeral=True)
         except Exception as e:
-            await self.log_erreur(interaction, e)
+            await log_erreur(self.bot, interaction.guild, f"creer_role\n{e}")
             await interaction.response.send_message("❌ Erreur lors de la création du rôle.", ephemeral=True)
 
     @app_commands.command(name="creer_categorie", description="Crée une catégorie si elle n’existe pas déjà.")
@@ -117,7 +98,7 @@ class AdminCommands(commands.Cog):
             category = await get_or_create_category(interaction.guild, nom_de_categorie)
             await interaction.response.send_message(f"✅ Catégorie créée : `{category.name}`", ephemeral=True)
         except Exception as e:
-            await self.log_erreur(interaction, e)
+            await log_erreur(self.bot, interaction.guild, f"creer_categorie\n{e}")
             await interaction.response.send_message("❌ Erreur lors de la création de la catégorie.", ephemeral=True)
 
     @app_commands.command(name="creer_salon", description="Crée un salon texte ou vocal dans une catégorie.")
@@ -134,7 +115,7 @@ class AdminCommands(commands.Cog):
                 return await interaction.response.send_message("❌ Type invalide (texte ou vocal)", ephemeral=True)
             await interaction.response.send_message(f"✅ Salon `{nom_salon}` créé dans `{categorie}`", ephemeral=True)
         except Exception as e:
-            await self.log_erreur(interaction, e)
+            await log_erreur(self.bot, interaction.guild, f"creer_salon\n{e}")
             await interaction.response.send_message("❌ Erreur lors de la création du salon.", ephemeral=True)
 
     # ───────────── Commande pour définir le rôle d’aide ─────────────
@@ -146,7 +127,7 @@ class AdminCommands(commands.Cog):
             definir_option_config("role_aide", str(role.id))
             await interaction.response.send_message(f"✅ Rôle d’aide défini : {role.mention}", ephemeral=True)
         except Exception as e:
-            await self.log_erreur(interaction, e)
+            await log_erreur(self.bot, interaction.guild, f"definir_role_aide\n{e}")
             await interaction.response.send_message("❌ Erreur lors de la configuration du rôle.", ephemeral=True)
 
     # ───────────── Modal : envoyer un message formaté ─────────────
@@ -170,13 +151,13 @@ class AdminCommands(commands.Cog):
                         await channel.send(self_inner.contenu.value)
                         await modal_interaction.followup.send("✅ Message envoyé !", ephemeral=True)
                     except Exception as e:
-                        await self.log_erreur(modal_interaction, e)
+                        await log_erreur(self.bot, interaction.guild, f"envoyer_message (on_submit)\n{e}")
                         await modal_interaction.followup.send("❌ Erreur lors de l’envoi.", ephemeral=True)
 
             await interaction.response.send_modal(Modal())
 
         except Exception as e:
-            await self.log_erreur(interaction, e)
+            await log_erreur(self.bot, interaction.guild, f"envoyer_message\n{e}")
             await interaction.response.send_message("❌ Erreur lors de l’ouverture du modal.", ephemeral=True)
 
 # ───────────── Ajout du Cog ─────────────

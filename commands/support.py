@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from utils.utils import (
     salon_est_autorise, is_admin, get_or_create_role,
-    get_redirection, charger_config
+    get_redirection, charger_config, log_erreur
 )
 import datetime
 import random
@@ -70,9 +70,9 @@ class SupportCommands(commands.Cog):
 
                 except Exception as e:
                     await modal_interaction.followup.send(f"❌ Une erreur est survenue : {e}", ephemeral=True)
-                    await self.log_error(modal_interaction.guild, "besoin_d_aide", e)
+                    await log_erreur(self.bot, modal_interaction.guild, f"Erreur dans `besoin_d_aide` : {e}")
 
-        await interaction.response.send_modal(ModalBesoinAide(timeout=None))
+        await interaction.response.send_modal(ModalBesoinAide())
 
     # ───────────── /journal_burnout ─────────────
     @app_commands.command(name="journal_burnout", description="Signale un mal-être ou burn-out.")
@@ -98,8 +98,8 @@ class SupportCommands(commands.Cog):
             await salon.send(embed=embed)
             await interaction.followup.send("🆘 Ton message a été transmis à l’équipe.", ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(f"❌ Une erreur est survenue : {e}", ephemeral=True)
-            await self.log_error(interaction.guild, "journal_burnout", e)
+            await interaction.followup.send("❌ Une erreur est survenue.", ephemeral=True)
+            await log_erreur(self.bot, interaction.guild, f"Erreur dans `journal_burnout` : {e}")
 
     # ───────────── /auto_motivation ─────────────
     @app_commands.command(name="auto_motivation", description="Reçois un boost de motivation.")
@@ -116,7 +116,7 @@ class SupportCommands(commands.Cog):
             ]
             await interaction.response.send_message(f"💬 {random.choice(citations)}", ephemeral=True)
         except Exception as e:
-            await self.log_error(interaction.guild, "auto_motivation", e)
+            await log_erreur(self.bot, interaction.guild, f"Erreur dans `auto_motivation` : {e}")
 
     # ───────────── /challenge_semaine ─────────────
     @app_commands.command(name="challenge_semaine", description="Reçois un défi à appliquer cette semaine.")
@@ -134,23 +134,7 @@ class SupportCommands(commands.Cog):
             ]
             await interaction.response.send_message(f"📆 Challenge : **{random.choice(challenges)}**", ephemeral=True)
         except Exception as e:
-            await self.log_error(interaction.guild, "challenge_semaine", e)
-
-    # ───────────── LOG ERREUR ─────────────
-    async def log_error(self, guild: discord.Guild, commande: str, erreur: Exception):
-        config = charger_config()
-        salon_log_id = config.get("log_erreurs_channel")
-        if not salon_log_id:
-            return
-        salon_log = guild.get_channel(int(salon_log_id))
-        if salon_log:
-            embed = discord.Embed(
-                title=f"🛑 Erreur dans la commande : `{commande}`",
-                description=f"```{str(erreur)}```",
-                color=discord.Color.red(),
-                timestamp=datetime.datetime.utcnow()
-            )
-            await salon_log.send(embed=embed)
+            await log_erreur(self.bot, interaction.guild, f"Erreur dans `challenge_semaine` : {e}")
 
 # ───────────── VUE AVEC BOUTONS ─────────────
 class BoutonsAide(discord.ui.View):

@@ -3,7 +3,11 @@ from discord import app_commands
 from discord.ext import commands
 import random
 from utils.utils import (
-    salon_est_autorise, get_or_create_role, get_or_create_category, charger_config
+    salon_est_autorise,
+    get_or_create_role,
+    get_or_create_category,
+    charger_config,
+    log_erreur  # ✅ ajout
 )
 
 class UtilisateurCommands(commands.Cog):
@@ -26,20 +30,6 @@ class UtilisateurCommands(commands.Cog):
             await interaction.response.send_message("⚠️ Commande exécutée dans un salon non autorisé. (Admin override)", ephemeral=True)
         return True
 
-    async def log_error(self, guild: discord.Guild, commande: str, erreur: Exception):
-        config = charger_config()
-        salon_log_id = config.get("log_erreurs_channel")
-        if not salon_log_id:
-            return
-        salon_log = guild.get_channel(int(salon_log_id))
-        if salon_log:
-            embed = discord.Embed(
-                title=f"❌ Erreur dans la commande : `{commande}`",
-                description=f"```{str(erreur)}```",
-                color=discord.Color.red()
-            )
-            await salon_log.send(embed=embed)
-
     @app_commands.command(name="conseil_methodo", description="Pose une question méthodo (public).")
     @app_commands.describe(question="Quelle est ta question méthodo ?")
     async def conseil_methodo(self, interaction: discord.Interaction, question: str):
@@ -51,7 +41,7 @@ class UtilisateurCommands(commands.Cog):
             await interaction.channel.send(embed=embed)
             await interaction.followup.send("✅ Ta question a été envoyée !", ephemeral=True)
         except Exception as e:
-            await self.log_error(interaction.guild, "conseil_methodo", e)
+            await log_erreur(self.bot, interaction.guild, f"Erreur dans /conseil_methodo : {e}")
 
     @app_commands.command(name="conseil_aleatoire", description="Donne un conseil de travail aléatoire.")
     async def conseil_aleatoire(self, interaction: discord.Interaction):
@@ -61,7 +51,7 @@ class UtilisateurCommands(commands.Cog):
             conseil = random.choice(self.conseils)
             await interaction.response.send_message(f"💡 Conseil : **{conseil}**", ephemeral=True)
         except Exception as e:
-            await self.log_error(interaction.guild, "conseil_aleatoire", e)
+            await log_erreur(self.bot, interaction.guild, f"Erreur dans /conseil_aleatoire : {e}")
 
     @app_commands.command(name="ressources", description="Liste des ressources utiles.")
     async def ressources(self, interaction: discord.Interaction):
@@ -78,7 +68,7 @@ class UtilisateurCommands(commands.Cog):
             embed.add_field(name="🎧 Podcast Motivation", value="[Podcast X](https://podcast.com)", inline=False)
             await interaction.response.send_message(embed=embed, ephemeral=True)
         except Exception as e:
-            await self.log_error(interaction.guild, "ressources", e)
+            await log_erreur(self.bot, interaction.guild, f"Erreur dans /ressources : {e}")
 
     @app_commands.command(name="mission_du_jour", description="Obtiens un mini-défi pour la journée.")
     async def mission_du_jour(self, interaction: discord.Interaction):
@@ -94,7 +84,7 @@ class UtilisateurCommands(commands.Cog):
             ]
             await interaction.response.send_message(f"🎯 Mission du jour : **{random.choice(missions)}**", ephemeral=True)
         except Exception as e:
-            await self.log_error(interaction.guild, "mission_du_jour", e)
+            await log_erreur(self.bot, interaction.guild, f"Erreur dans /mission_du_jour : {e}")
 
     @app_commands.command(name="checkin", description="Exprime ton humeur avec un emoji.")
     @app_commands.describe(humeur="Ex: 😀, 😞, 😴, etc.")
@@ -104,7 +94,7 @@ class UtilisateurCommands(commands.Cog):
         try:
             await interaction.response.send_message(f"📌 Humeur enregistrée : {humeur}", ephemeral=True)
         except Exception as e:
-            await self.log_error(interaction.guild, "checkin", e)
+            await log_erreur(self.bot, interaction.guild, f"Erreur dans /checkin : {e}")
 
     @app_commands.command(name="cours_aide", description="Demande d'aide sur un cours via modal.")
     async def cours_aide(self, interaction: discord.Interaction):
@@ -120,8 +110,8 @@ class UtilisateurCommands(commands.Cog):
                 required=True
             )
 
-            async def on_submit(modal_interaction: discord.Interaction):
-                await modal_interaction.response.defer(thinking=False, ephemeral=True)
+            async def on_submit(self, modal_interaction: discord.Interaction):
+                await modal_interaction.response.defer(ephemeral=True)
                 try:
                     user = modal_interaction.user
                     guild = modal_interaction.guild
@@ -155,10 +145,15 @@ class UtilisateurCommands(commands.Cog):
 
                 except Exception as e:
                     await modal_interaction.followup.send("❌ Une erreur est survenue lors de la création de l'espace d'aide.", ephemeral=True)
-                    await UtilisateurCommands.log_error(self, guild, "cours_aide", e)
+                    await log_erreur(self.bot, modal_interaction.guild, f"Erreur dans /cours_aide (on_submit) : {e}")
 
-        await interaction.response.send_modal(CoursAideModal())
+        try:
+            await interaction.response.send_modal(CoursAideModal(timeout=None))
+        except Exception as e:
+            await log_erreur(self.bot, interaction.guild, f"Erreur lors de l'ouverture du modal /cours_aide : {e}")
+            await interaction.followup.send("❌ Erreur lors de l'ouverture du formulaire.", ephemeral=True)
 
+# ───────────── VUE BOUTONS ─────────────
 class CoursAideView(discord.ui.View):
     def __init__(self, demandeur: discord.Member, category: discord.CategoryChannel, temp_role: discord.Role):
         super().__init__(timeout=None)
