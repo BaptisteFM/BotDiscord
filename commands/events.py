@@ -3,7 +3,10 @@ from discord.ext import commands
 import json
 import os
 from utils.utils import log_erreur
+
 WHITELIST_PATH = "data/whitelist.json"
+
+# ========== FONCTIONS JSON ==========
 def charger_whitelist():
     if not os.path.exists(WHITELIST_PATH):
         return []
@@ -14,6 +17,8 @@ def sauvegarder_whitelist(whitelist):
     os.makedirs("data", exist_ok=True)
     with open(WHITELIST_PATH, "w", encoding="utf-8") as f:
         json.dump(whitelist, f, indent=4)
+
+# ========== COG DES ÉVÉNEMENTS ==========
 class WhitelistEvents(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -22,9 +27,10 @@ class WhitelistEvents(commands.Cog):
     async def on_member_join(self, member: discord.Member):
         try:
             whitelist = charger_whitelist()
+            role_membre = discord.utils.get(member.guild.roles, name="Membre")
+            role_non_verifie = discord.utils.get(member.guild.roles, name="Non vérifié")
+
             if member.id in whitelist:
-                # ✅ Membre autorisé → on peut lui donner le rôle Membre
-                role_membre = discord.utils.get(member.guild.roles, name="Membre")
                 if role_membre:
                     await member.add_roles(role_membre)
                     try:
@@ -32,11 +38,12 @@ class WhitelistEvents(commands.Cog):
                     except:
                         pass
             else:
-                # ❌ Pas dans la whitelist → rôle Non vérifié
-                role_non_verifie = discord.utils.get(member.guild.roles, name="Non vérifié")
                 if role_non_verifie:
                     await member.add_roles(role_non_verifie)
+
         except Exception as e:
             await log_erreur(self.bot, member.guild, f"on_member_join : {e}")
+
+# ========== SETUP ==========
 async def setup(bot):
     await bot.add_cog(WhitelistEvents(bot))

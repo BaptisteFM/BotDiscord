@@ -109,23 +109,34 @@ class AdminCommands(commands.Cog):
             await log_erreur(self.bot, interaction.guild, f"creer_categorie\n{e}")
             await interaction.response.send_message("❌ Erreur lors de la création de la catégorie.", ephemeral=True)
 
+
     # ───────────── Commande : Créer un salon ─────────────
-    @app_commands.command(name="creer_salon", description="Crée un salon texte ou vocal dans une catégorie.")
+    @app_commands.command(name="creer_salon", description="Crée un salon texte ou vocal dans une catégorie existante.")
+    @app_commands.describe(nom_salon="Nom du nouveau salon", type_salon="Type de salon : texte ou vocal", categorie="Catégorie existante (copie-colle le nom)")
     async def creer_salon(self, interaction: discord.Interaction, nom_salon: str, type_salon: str, categorie: str):
         try:
             if not await is_admin(interaction.user):
                 return await interaction.response.send_message("❌ Vous devez être administrateur.", ephemeral=True)
-            category = await get_or_create_category(interaction.guild, categorie)
+
+            # Cherche une catégorie existante
+            category = discord.utils.get(interaction.guild.categories, name=categorie)
+            if not category:
+                return await interaction.response.send_message("❌ Cette catégorie n'existe pas. Vérifie l'orthographe exacte.", ephemeral=True)
+
+            # Crée le salon
             if type_salon.lower() == "texte":
                 await interaction.guild.create_text_channel(nom_salon, category=category)
             elif type_salon.lower() == "vocal":
                 await interaction.guild.create_voice_channel(nom_salon, category=category)
             else:
-                return await interaction.response.send_message("❌ Type invalide (texte ou vocal)", ephemeral=True)
-            await interaction.response.send_message(f"✅ Salon `{nom_salon}` créé dans `{categorie}`", ephemeral=True)
+                return await interaction.response.send_message("❌ Type de salon invalide. Choisis 'texte' ou 'vocal'.", ephemeral=True)
+
+            await interaction.response.send_message(f"✅ Salon `{nom_salon}` créé dans la catégorie `{categorie}`.", ephemeral=True)
+
         except Exception as e:
-            await log_erreur(self.bot, interaction.guild, f"creer_salon\n{e}")
+            await log_erreur(self.bot, interaction.guild, f"creer_salon: {e}")
             await interaction.response.send_message("❌ Erreur lors de la création du salon.", ephemeral=True)
+
 
     # ───────────── Commande : Définir le rôle d’aide ─────────────
     @app_commands.command(name="definir_role_aide", description="Définit le rôle ping pour aider les étudiants.")
@@ -184,21 +195,25 @@ class AdminCommands(commands.Cog):
 
     # ───────────── Nouvelles Fonctions Administratives ─────────────
 
-    # 1. Créer une catégorie privée accessible uniquement pour un rôle donné.
-    @app_commands.command(name="creer_categorie_privee", description="Crée une catégorie privée visible uniquement pour un rôle spécifique.")
+    # ───────────── Commande : Créer une catégorie privée ─────────────
+    @app_commands.command(name="creer_categorie_privee", description="Crée une catégorie privée pour un rôle donné, avec emoji en option.")
+    @app_commands.describe(nom_de_categorie="Nom de la catégorie à créer (tu peux inclure un emoji)", role="Rôle qui aura accès")
     async def creer_categorie_privee(self, interaction: discord.Interaction, nom_de_categorie: str, role: discord.Role):
         try:
             if not await is_admin(interaction.user):
                 return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+
             overwrites = {
                 interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
                 role: discord.PermissionOverwrite(read_messages=True)
             }
-            category = await interaction.guild.create_category(nom_de_categorie, overwrites=overwrites)
-            await interaction.response.send_message(f"✅ Catégorie privée `{category.name}` créée pour le rôle {role.mention}.", ephemeral=True)
+
+            category = await interaction.guild.create_category(name=nom_de_categorie, overwrites=overwrites)
+            await interaction.response.send_message(f"✅ Catégorie privée `{category.name}` créée avec accès pour {role.mention}.", ephemeral=True)
         except Exception as e:
             await log_erreur(self.bot, interaction.guild, f"creer_categorie_privee: {e}")
             await interaction.response.send_message("❌ Erreur lors de la création de la catégorie privée.", ephemeral=True)
+
 
     # 2. Créer un message Reaction Role via modal (jusqu'à 3 associations)
     class ReactionRoleModal(discord.ui.Modal, title="Création d'un Reaction Role"):
