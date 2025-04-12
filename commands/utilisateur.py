@@ -20,6 +20,16 @@ class UtilisateurCommands(commands.Cog):
             "🤝 Échange avec tes camarades – enseigner est la meilleure façon d'apprendre."
         ]
 
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.CheckFailure):
+            await interaction.response.send_message(
+                "❌ Vous n'avez pas accès aux commandes utilisateurs. Si vous rencontrez un problème, contactez le staff.",
+                ephemeral=True
+            )
+        else:
+            await log_erreur(self.bot, interaction.guild, f"UtilisateurCommands error: {error}")
+            raise error
+
     async def check_salon(self, interaction: discord.Interaction, command_name: str) -> bool:
         result = salon_est_autorise(command_name, interaction.channel_id, interaction.user)
         if result is False:

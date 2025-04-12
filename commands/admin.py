@@ -178,7 +178,7 @@ class AdminCommands(commands.Cog):
 
     @definir_permission.autocomplete("commande")
     async def autocomplete_command_permission(self, interaction: discord.Interaction, current: str):
-        # Liste prédéfinie des commandes admin et whitelist
+        # Liste prédéfinie des commandes admin et whitelist pour faciliter la saisie
         commands_list = [
             "definir_salon", "definir_redirection", "definir_config", "definir_log_erreurs",
             "creer_role", "creer_categorie", "creer_salon", "definir_role_aide",

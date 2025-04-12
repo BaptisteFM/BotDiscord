@@ -155,6 +155,14 @@ class ValidationButtons(discord.ui.View):
             except:
                 pass
 
+            # --- Ajout du membre dans la whitelist automatiquement ---
+            from utils.utils import charger_whitelist, sauvegarder_whitelist
+            whitelist_members = charger_whitelist()
+            if user.id not in whitelist_members:
+                whitelist_members.append(user.id)
+                sauvegarder_whitelist(whitelist_members)
+            # ------------------------------------------------------------
+
             cog = self.bot.get_cog("whitelist")
             if cog:
                 cog.supprimer_demande(user.id)
@@ -164,6 +172,7 @@ class ValidationButtons(discord.ui.View):
         except Exception as e:
             await log_erreur(self.bot, interaction.guild, f"ValidationButtons accepter : {e}")
             await interaction.response.send_message("❌ Erreur lors de la validation.", ephemeral=True)
+
 
     @discord.ui.button(label="❌ Refuser", style=discord.ButtonStyle.danger)
     async def refuser(self, interaction: discord.Interaction, button: discord.ui.Button):

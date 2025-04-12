@@ -10,7 +10,6 @@ async def check_verified(interaction: discord.Interaction) -> bool:
         return True
     raise app_commands.CheckFailure("Commande réservée aux membres vérifiés.")
 
-# ───────────── Modal pour le journal burnout ─────────────
 class JournalBurnoutModal(discord.ui.Modal, title="Journal Burn-Out"):
     message = discord.ui.TextInput(
         label="Décris ton état (anonymement)",
@@ -38,11 +37,7 @@ class JournalBurnoutModal(discord.ui.Modal, title="Journal Burn-Out"):
                 await interaction.response.send_message("❌ Le salon pour le journal burnout est introuvable.", ephemeral=True)
                 return
 
-            if self.emoji.value.strip():
-                emoji_used = self.emoji.value.strip()
-            else:
-                emoji_options = ["😞", "😔", "😢", "😴", "😓", "💤"]
-                emoji_used = random.choice(emoji_options)
+            emoji_used = self.emoji.value.strip() if self.emoji.value.strip() else random.choice(["😞", "😔", "😢", "😴", "😓", "💤"])
 
             embed = discord.Embed(
                 title="🚨 Signalement de Burn-Out",
@@ -59,10 +54,19 @@ class JournalBurnoutModal(discord.ui.Modal, title="Journal Burn-Out"):
             await log_erreur(interaction.client, interaction.guild, f"JournalBurnoutModal on_submit: {e}")
             await interaction.response.send_message("❌ Une erreur est survenue lors de l'envoi de ton signalement.", ephemeral=True)
 
-# ───────────── Commandes Support ─────────────
 class SupportCommands(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.CheckFailure):
+            await interaction.response.send_message(
+                "❌ Vous n'avez pas accès aux commandes support. Si vous rencontrez un problème, contactez le staff.",
+                ephemeral=True
+            )
+        else:
+            await log_erreur(self.bot, interaction.guild, f"SupportCommands error: {error}")
+            raise error
 
     @app_commands.command(name="journal_burnout", description="Signale anonymement une baisse de moral, une fatigue mentale ou un burn-out.")
     @app_commands.check(check_verified)
@@ -73,6 +77,5 @@ class SupportCommands(commands.Cog):
             await log_erreur(interaction.client, interaction.guild, f"journal_burnout: {e}")
             await interaction.response.send_message("❌ Une erreur est survenue lors de l'ouverture du formulaire.", ephemeral=True)
 
-# ───────────── Setup du Cog Support ─────────────
 async def setup_support_commands(bot: commands.Bot):
     await bot.add_cog(SupportCommands(bot))
