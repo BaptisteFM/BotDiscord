@@ -22,8 +22,8 @@ class AdminCommands(commands.Cog):
         self.reaction_role_messages = load_reaction_role_mapping()
 
     # ───────────── /definir_salon ─────────────
-    @app_commands.command(name="definir_salon", description="Définir le salon autorisé pour une commande.")
-    @app_commands.describe(nom_commande="Nom exact de la commande", salon="Salon autorisé")
+    @app_commands.command(name="definir_salon", description="Définir le salon autorisé pour une commande existante.")
+    @app_commands.describe(nom_commande="Choisis une commande existante", salon="Salon autorisé")
     async def definir_salon(self, interaction: discord.Interaction, nom_commande: str, salon: discord.TextChannel):
         if not await is_admin(interaction.user):
             return await interaction.response.send_message("❌ Vous devez être administrateur.", ephemeral=True)
@@ -32,6 +32,15 @@ class AdminCommands(commands.Cog):
             f"✅ La commande `{nom_commande}` est désormais accessible **uniquement** dans {salon.mention}.",
             ephemeral=True
         )
+
+    @definir_salon.autocomplete("nom_commande")
+    async def autocomplete_command_names(self, interaction: discord.Interaction, current: str):
+        # On récupère toutes les commandes disponibles
+        all_commands = [cmd.name for cmd in self.bot.tree.get_commands()]
+        # On filtre en fonction de ce que l'utilisateur tape
+        suggestions = [app_commands.Choice(name=cmd, value=cmd) for cmd in all_commands if current.lower() in cmd.lower()]
+        return suggestions[:25]  # Limite imposée par Discord
+
 
     # ───────────── /definir_redirection ─────────────
     @app_commands.command(name="definir_redirection", description="Définir la redirection d'un type de message.")
