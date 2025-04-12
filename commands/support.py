@@ -22,20 +22,26 @@ class SupportCommands(commands.Cog):
             sujet = discord.ui.TextInput(label="Sujet", placeholder="Ex: Difficultés en anatomie", max_length=100, required=True)
             description = discord.ui.TextInput(label="Détaille ton besoin", style=discord.TextStyle.paragraph, max_length=500, required=True)
 
-            async def on_submit(self, modal_interaction: discord.Interaction):
-                await modal_interaction.response.defer(ephemeral=True)
+            async def on_submit(self_inner, modal_interaction: discord.Interaction):
                 try:
+                    await modal_interaction.response.defer(ephemeral=True)
                     user = modal_interaction.user
                     guild = modal_interaction.guild
 
-                    role_name = f"Aide-{user.name}-{user.id}"
+                    # 🔧 Corrigé : nom de rôle et de catégorie plus court
+                    role_name = f"Aide-{user.id}"
+                    category_name = f"aide-{user.id}"
+
+                    # 🔧 Création du rôle temporaire
                     role_temp = await get_or_create_role(guild, role_name)
                     await user.add_roles(role_temp)
 
+                    # 🔧 Récupération du rôle d’aide configuré
                     config = charger_config()
                     role_aide_id = config.get("role_aide")
                     role_aide = guild.get_role(int(role_aide_id)) if role_aide_id else None
 
+                    # 🔧 Permissions
                     overwrites = {
                         guild.default_role: discord.PermissionOverwrite(read_messages=False),
                         role_temp: discord.PermissionOverwrite(read_messages=True, send_messages=True)
@@ -43,36 +49,41 @@ class SupportCommands(commands.Cog):
                     if role_aide:
                         overwrites[role_aide] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
-                    category_name = f"aide-{user.name}-{user.id}".lower()
+                    # 🔧 Création des salons
                     category = await guild.create_category(category_name, overwrites=overwrites)
                     text_channel = await guild.create_text_channel("écris-ici", category=category)
                     await guild.create_voice_channel("parle-ici", category=category)
 
+                    # 🔧 Message public
                     view = BoutonsAide(user, category, role_temp)
-
                     embed = discord.Embed(
-                        title=f"🔎 Besoin d'aide : {self.sujet.value}",
-                        description=self.description.value,
+                        title=f"🔎 Besoin d'aide : {self_inner.sujet.value}",
+                        description=self_inner.description.value,
                         color=discord.Color.orange(),
                         timestamp=datetime.datetime.utcnow()
                     )
                     embed.set_footer(text=f"Demandé par {user.display_name}")
-                    await interaction.channel.send(embed=embed, view=view)
+                    await modal_interaction.channel.send(embed=embed, view=view)
 
+                    # 🔧 Notification privée
                     if role_aide:
                         await text_channel.send(
                             f"🔔 {role_aide.mention}, {user.mention} a besoin d'aide !\n\n"
-                            f"**Sujet :** {self.sujet.value}\n"
-                            f"**Détails :** {self.description.value}"
+                            f"**Sujet :** {self_inner.sujet.value}\n"
+                            f"**Détails :** {self_inner.description.value}"
                         )
 
                     await modal_interaction.followup.send("✅ Espace privé créé et demande envoyée.", ephemeral=True)
 
                 except Exception as e:
-                    await modal_interaction.followup.send(f"❌ Une erreur est survenue : {e}", ephemeral=True)
-                    await log_erreur(self.bot, modal_interaction.guild, f"Erreur dans `besoin_d_aide` : {e}")
+                    await modal_interaction.followup.send("❌ Une erreur est survenue dans le formulaire.", ephemeral=True)
+                    await log_erreur(self.bot, modal_interaction.guild, f"Erreur dans on_submit (/besoin_d_aide) : {e}")
 
-        await interaction.response.send_modal(ModalBesoinAide())
+        try:
+            await interaction.response.send_modal(ModalBesoinAide(timeout=None))
+        except Exception as e:
+            await interaction.followup.send("❌ Erreur lors de l'ouverture du formulaire.", ephemeral=True)
+            await log_erreur(self.bot, interaction.guild, f"Erreur lors de l'ouverture du modal dans /besoin_d_aide : {e}")
 
     # ───────────── /journal_burnout ─────────────
     @app_commands.command(name="journal_burnout", description="Signale un mal-être ou burn-out.")
@@ -136,6 +147,7 @@ class SupportCommands(commands.Cog):
         except Exception as e:
             await log_erreur(self.bot, interaction.guild, f"Erreur dans `challenge_semaine` : {e}")
 
+
 # ───────────── VUE AVEC BOUTONS ─────────────
 class BoutonsAide(discord.ui.View):
     def __init__(self, demandeur, category, temp_role):
@@ -162,6 +174,7 @@ class BoutonsAide(discord.ui.View):
             await interaction.response.send_message("✅ Demande supprimée.", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"❌ Erreur : {e}", ephemeral=True)
+
 
 # ───────────── SETUP COG ─────────────
 async def setup_support_commands(bot):
