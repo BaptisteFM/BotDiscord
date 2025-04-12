@@ -15,25 +15,30 @@ class SupportCommands(commands.Cog):
         if not await salon_est_autorise("besoin_d_aide", interaction.channel_id, interaction.user):
             return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
 
-        guild = interaction.guild
-        role_name = f"Aide-{interaction.user.name}"
-        role = await get_or_create_role(guild, role_name)
+        await interaction.response.defer(ephemeral=True)
 
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            role: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        }
+        try:
+            guild = interaction.guild
+            role_name = f"Aide-{interaction.user.name}"
+            role = await get_or_create_role(guild, role_name)
 
-        category_name = f"aide-{interaction.user.name}".lower()
-        category = await guild.create_category(category_name, overwrites=overwrites)
-        await guild.create_text_channel("écris-ici", category=category)
-        await guild.create_voice_channel("parle-ici", category=category)
-        await interaction.user.add_roles(role)
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                role: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            }
 
-        await interaction.response.send_message(
-            f"✅ Espace privé créé : **{category.name}**.\nTu peux échanger en toute confidentialité.",
-            ephemeral=True
-        )
+            category_name = f"aide-{interaction.user.name}".lower()
+            category = await guild.create_category(category_name, overwrites=overwrites)
+            await guild.create_text_channel("écris-ici", category=category)
+            await guild.create_voice_channel("parle-ici", category=category)
+            await interaction.user.add_roles(role)
+
+            await interaction.followup.send(
+                f"✅ Espace privé créé : **{category.name}**.\nTu peux échanger en toute confidentialité.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await interaction.followup.send(f"❌ Une erreur est survenue : {e}", ephemeral=True)
 
     # ───────────── /journal_burnout ─────────────
     @app_commands.command(name="journal_burnout", description="Signale un mal-être ou burn-out.")
@@ -42,30 +47,32 @@ class SupportCommands(commands.Cog):
         if not await salon_est_autorise("journal_burnout", interaction.channel_id, interaction.user):
             return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
 
-        channel_id = get_redirection("burnout")
-        if channel_id is None:
-            return await interaction.response.send_message(
-                "❌ Le salon de redirection pour les signalements de burn-out n'est pas configuré. Demande à un admin avec `/definir_redirection`.",
-                ephemeral=True
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            channel_id = get_redirection("burnout")
+            if channel_id is None:
+                return await interaction.followup.send(
+                    "❌ Le salon de redirection pour les burn-out n'est pas configuré.",
+                    ephemeral=True
+                )
+
+            channel = interaction.guild.get_channel(int(channel_id))
+            if channel is None:
+                return await interaction.followup.send("❌ Le salon configuré n'existe pas.", ephemeral=True)
+
+            embed = discord.Embed(
+                title="🚨 Signalement Burn-Out",
+                description=message,
+                color=discord.Color.red(),
+                timestamp=datetime.datetime.utcnow()
             )
+            embed.set_footer(text=f"Par {interaction.user.display_name}")
+            await channel.send(embed=embed)
 
-        channel = interaction.guild.get_channel(int(channel_id))
-        if channel is None:
-            return await interaction.response.send_message("❌ Le salon configuré n'existe pas.", ephemeral=True)
-
-        embed = discord.Embed(
-            title="🚨 Signalement Burn-Out",
-            description=message,
-            color=discord.Color.red(),
-            timestamp=datetime.datetime.utcnow()
-        )
-        embed.set_footer(text=f"Par {interaction.user.display_name}")
-        await channel.send(embed=embed)
-
-        await interaction.response.send_message(
-            "🆘 Ton message a été transmis à l’équipe. Courage à toi ❤️",
-            ephemeral=True
-        )
+            await interaction.followup.send("🆘 Ton message a été transmis à l’équipe. Courage à toi ❤️", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Erreur lors de l'envoi du signalement : {e}", ephemeral=True)
 
     # ───────────── /auto_motivation ─────────────
     @app_commands.command(name="auto_motivation", description="Reçois un boost de motivation.")
@@ -103,7 +110,7 @@ class SupportCommands(commands.Cog):
     )
     @app_commands.describe(
         nom_categorie="Nom de la nouvelle catégorie privée",
-        roles="Liste séparée par des virgules des ID des rôles autorisés (ex: 123456789012345678, 987654321098765432)"
+        roles="Liste séparée par des virgules des ID des rôles autorisés"
     )
     async def creer_categorie_privee(self, interaction: discord.Interaction, nom_categorie: str, roles: str):
         if not await is_admin(interaction.user):
@@ -112,6 +119,8 @@ class SupportCommands(commands.Cog):
                 ephemeral=True
             )
 
+        await interaction.response.defer(ephemeral=True)
+
         allowed_roles = []
         role_ids = [r.strip() for r in roles.split(",")]
         for role_id in role_ids:
@@ -119,15 +128,13 @@ class SupportCommands(commands.Cog):
                 role_id_int = int(role_id)
                 role = interaction.guild.get_role(role_id_int)
                 if role is None:
-                    return await interaction.response.send_message(
-                        f"❌ Aucun rôle trouvé pour l'ID {role_id}.",
-                        ephemeral=True
+                    return await interaction.followup.send(
+                        f"❌ Aucun rôle trouvé pour l'ID {role_id}.", ephemeral=True
                     )
                 allowed_roles.append(role)
             except ValueError:
-                return await interaction.response.send_message(
-                    f"❌ L'ID '{role_id}' n'est pas valide.",
-                    ephemeral=True
+                return await interaction.followup.send(
+                    f"❌ L'ID '{role_id}' n'est pas valide.", ephemeral=True
                 )
 
         overwrites = {
@@ -138,14 +145,12 @@ class SupportCommands(commands.Cog):
 
         try:
             category = await interaction.guild.create_category(nom_categorie, overwrites=overwrites)
-            await interaction.response.send_message(
-                f"✅ La catégorie **{category.name}** a été créée.",
-                ephemeral=True
+            await interaction.followup.send(
+                f"✅ La catégorie **{category.name}** a été créée.", ephemeral=True
             )
         except Exception as e:
-            await interaction.response.send_message(
-                f"❌ Erreur lors de la création : {e}",
-                ephemeral=True
+            await interaction.followup.send(
+                f"❌ Erreur lors de la création : {e}", ephemeral=True
             )
 
 async def setup_support_commands(bot):

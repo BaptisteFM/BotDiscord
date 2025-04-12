@@ -9,13 +9,14 @@ from utils.utils import (
     get_or_create_role,
     get_or_create_category,
     definir_redirection,
-    definir_option_config
+    definir_option_config,
+    load_reaction_role_mapping,
+    save_reaction_role_mapping
 )
 
 class AdminCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        from utils.utils import load_reaction_role_mapping
         self.reaction_role_messages = load_reaction_role_mapping()
 
     @app_commands.command(name="definir_salon", description="Définir le salon autorisé pour une commande existante.")
@@ -96,6 +97,54 @@ class AdminCommands(commands.Cog):
         config["role_aide"] = str(role.id)
         sauvegarder_config(config)
         await interaction.response.send_message(f"✅ Le rôle {role.mention} est défini pour les aides.", ephemeral=True)
+
+    @app_commands.command(name="envoyer_message", description="Envoie un message formaté via modal dans un salon.")
+    @app_commands.describe(channel="Salon dans lequel envoyer le message")
+    async def envoyer_message(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        if not await is_admin(interaction.user):
+            return await interaction.response.send_message("❌ Vous devez être administrateur.", ephemeral=True)
+
+        class EnvoyerMessageModal(discord.ui.Modal, title="Envoyer un message"):
+            message_contenu = discord.ui.TextInput(
+                label="Contenu du message",
+                style=discord.TextStyle.paragraph,
+                placeholder="Tapez ici votre message avec mise en forme",
+                required=True
+            )
+
+            async def on_submit(modal_interaction: discord.Interaction):
+                await modal_interaction.response.defer(ephemeral=True)
+                await channel.send(self.message_contenu.value)
+                await modal_interaction.followup.send("✅ Message envoyé.", ephemeral=True)
+
+        await interaction.response.send_modal(EnvoyerMessageModal())
+
+    @app_commands.command(name="programmer_message", description="Programme un message hebdomadaire via modal.")
+    @app_commands.describe(channel="Salon dans lequel envoyer le message")
+    async def programmer_message(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        if not await is_admin(interaction.user):
+            return await interaction.response.send_message("❌ Vous devez être administrateur.", ephemeral=True)
+
+        class ProgrammerMessageModal(discord.ui.Modal, title="Programmer un message récurrent"):
+            message_contenu = discord.ui.TextInput(
+                label="Contenu du message",
+                style=discord.TextStyle.paragraph,
+                placeholder="Tapez ici votre message à envoyer chaque semaine.",
+                required=True
+            )
+
+            async def on_submit(modal_interaction: discord.Interaction):
+                await modal_interaction.response.defer(ephemeral=True)
+                contenu = self.message_contenu.value
+                await modal_interaction.followup.send("✅ Message programmé pour chaque semaine.", ephemeral=True)
+                self.bot.loop.create_task(self.schedule_recurring_message(channel, contenu))
+
+        await interaction.response.send_modal(ProgrammerMessageModal())
+
+    async def schedule_recurring_message(self, channel: discord.TextChannel, contenu: str):
+        while True:
+            await channel.send(contenu)
+            await asyncio.sleep(7 * 24 * 3600)
 
 async def setup_admin_commands(bot):
     await bot.add_cog(AdminCommands(bot))
