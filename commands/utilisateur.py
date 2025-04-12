@@ -5,7 +5,6 @@ import random
 from utils.utils import (
     salon_est_autorise,
     get_or_create_role,
-    get_or_create_category,
     charger_config,
     log_erreur
 )
@@ -102,7 +101,11 @@ class UtilisateurCommands(commands.Cog):
             return
 
         class CoursAideModal(discord.ui.Modal, title="Demande d'aide sur un cours"):
-            cours = discord.ui.TextInput(label="Cours concerné", placeholder="Ex: Mathématiques, Physique, etc.", required=True)
+            cours = discord.ui.TextInput(
+                label="Cours concerné", 
+                placeholder="Ex: Mathématiques, Physique, etc.", 
+                required=True
+            )
             details = discord.ui.TextInput(
                 label="Détaillez votre problème",
                 style=discord.TextStyle.paragraph,
@@ -111,7 +114,8 @@ class UtilisateurCommands(commands.Cog):
             )
 
             async def on_submit(self, modal_interaction: discord.Interaction):
-                await modal_interaction.response.defer()  # Publication publique
+                # Réponse non éphémère pour publier publiquement
+                await modal_interaction.response.defer()
                 try:
                     user = modal_interaction.user
                     guild = modal_interaction.guild
@@ -133,9 +137,11 @@ class UtilisateurCommands(commands.Cog):
                     if role_aide:
                         overwrites[role_aide] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
-                    # Création de la catégorie privée et des salons correspondants
-                    category = await get_or_create_category(guild, f"cours-aide-{user.name}-{user.id}".lower())
-                    await category.edit(overwrites=overwrites)
+                    # Création explicite d'une nouvelle catégorie privée
+                    category_name = f"cours-aide-{user.name}-{user.id}".lower()
+                    category = await guild.create_category(category_name, overwrites=overwrites)
+                    
+                    # Création des salons dans la catégorie
                     discussion_channel = await guild.create_text_channel("discussion", category=category)
                     await guild.create_voice_channel("support-voice", category=category)
 
@@ -185,11 +191,11 @@ class CoursAideView(discord.ui.View):
             # Retirer le rôle temporaire de tous les membres qui l'ont
             for member in list(self.temp_role.members):
                 await member.remove_roles(self.temp_role)
-            # Supprimer le rôle de la guilde
+            # Supprimer le rôle temporaire de la guilde
             await self.temp_role.delete()
-            # Supprimer la catégorie privée et tous ses salons
+            # Supprimer la catégorie privée (ce qui supprime tous ses salons)
             await self.category.delete()
-            # Supprimer le message public (celui contenant l'embed et la vue)
+            # Supprimer le message public affiché par le bot (contenant l'embed et la vue)
             await interaction.message.delete()
             await interaction.followup.send("✅ Demande supprimée : la catégorie privée et le rôle temporaire ont été retirés.", ephemeral=True)
         except Exception as e:

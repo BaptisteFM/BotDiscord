@@ -27,7 +27,7 @@ class AdminCommands(commands.Cog):
         try:
             if not await is_admin(interaction.user):
                 return await interaction.response.send_message("❌ Vous devez être administrateur.", ephemeral=True)
-            # ATTENTION : Assurez-vous d'utiliser des noms de commandes actuels, par exemple "cours_aide" et non "besoin_d_aide"
+            # ATTENTION : utilisez les noms de commandes actuels, par exemple "cours_aide"
             definir_salon_autorise(nom_commande, salon.id)
             await interaction.response.send_message(f"✅ Salon défini pour `{nom_commande}` : {salon.mention}", ephemeral=True)
         except Exception as e:
@@ -153,11 +153,10 @@ class AdminCommands(commands.Cog):
                         await modal_interaction.followup.send("❌ Erreur lors de l’envoi.", ephemeral=True)
 
             await interaction.response.send_modal(Modal())
-
         except Exception as e:
             await log_erreur(self.bot, interaction.guild, f"envoyer_message\n{e}")
             await interaction.response.send_message("❌ Erreur lors de l’ouverture du modal.", ephemeral=True)
-    
+
     @app_commands.command(name="definir_journal_burnout", description="Définit le salon réservé aux signalements de burnout.")
     async def definir_journal_burnout(self, interaction: discord.Interaction, salon: discord.TextChannel):
         try:
@@ -170,6 +169,123 @@ class AdminCommands(commands.Cog):
         except Exception as e:
             await log_erreur(self.bot, interaction.guild, f"definir_journal_burnout: {e}")
             await interaction.response.send_message("❌ Erreur lors de la configuration du salon de burnout.", ephemeral=True)
+
+    # ───────────── Nouvelles Fonctions Admin ─────────────
+
+    # 1. Commande pour créer une catégorie privée accessible uniquement à un certain rôle
+    @app_commands.command(name="creer_categorie_privee", description="Crée une catégorie privée visible uniquement pour un rôle spécifique.")
+    async def creer_categorie_privee(self, interaction: discord.Interaction, nom_de_categorie: str, role: discord.Role):
+        try:
+            if not await is_admin(interaction.user):
+                return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+            overwrites = {
+                interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                role: discord.PermissionOverwrite(read_messages=True)
+            }
+            category = await interaction.guild.create_category(nom_de_categorie, overwrites=overwrites)
+            await interaction.response.send_message(f"✅ Catégorie privée `{category.name}` créée pour le rôle {role.mention}.", ephemeral=True)
+        except Exception as e:
+            await log_erreur(self.bot, interaction.guild, f"creer_categorie_privee: {e}")
+            await interaction.response.send_message("❌ Erreur lors de la création de la catégorie privée.", ephemeral=True)
+
+    # 2. Commande pour créer un message Reaction Role via modal (jusqu'à 3 associations possibles)
+    class ReactionRoleModal(discord.ui.Modal, title="Création d'un Reaction Role"):
+        message = discord.ui.TextInput(
+            label="Message à poster",
+            style=discord.TextStyle.paragraph,
+            placeholder="Tapez ici le contenu du message pour le reaction role.",
+            required=True
+        )
+        pair1 = discord.ui.TextInput(
+            label="Association 1 (emoji, role)",
+            style=discord.TextStyle.short,
+            placeholder="Ex: 😀, @EtudiantMath",
+            required=False
+        )
+        pair2 = discord.ui.TextInput(
+            label="Association 2 (emoji, role)",
+            style=discord.TextStyle.short,
+            placeholder="Ex: 😎, @EtudiantPhysique",
+            required=False
+        )
+        pair3 = discord.ui.TextInput(
+            label="Association 3 (emoji, role)",
+            style=discord.TextStyle.short,
+            placeholder="Ex: 🎯, @EtudiantChimie",
+            required=False
+        )
+
+        async def on_submit(self, modal_interaction: discord.Interaction):
+            try:
+                # Récupération du canal à partir de l'attribut custom 'channel_object'
+                channel = modal_interaction.data.get("channel_object")
+                if not channel:
+                    await modal_interaction.response.send_message("❌ Canal non spécifié.", ephemeral=True)
+                    return
+
+                pairs = []
+                for field in [self.pair1.value, self.pair2.value, self.pair3.value]:
+                    if field and "," in field:
+                        parts = field.split(",", 1)
+                        emoji = parts[0].strip()
+                        role_str = parts[1].strip()
+                        if role_str.startswith("<@&") and role_str.endswith(">"):
+                            role_id = int(role_str.strip("<@&>"))
+                            pairs.append((emoji, role_id))
+                msg = await channel.send(self.message.value)
+                for emoji, role_id in pairs:
+                    try:
+                        await msg.add_reaction(emoji)
+                    except Exception as e:
+                        print(f"Erreur sur l'emoji {emoji} : {e}")
+                mapping = load_reaction_role_mapping()
+                mapping[str(msg.id)] = [{"emoji": emoji, "role_id": role_id} for emoji, role_id in pairs]
+                save_reaction_role_mapping(mapping)
+                await modal_interaction.response.send_message("✅ Reaction role créé avec succès.", ephemeral=True)
+            except Exception as e:
+                await log_erreur(self.bot, modal_interaction.guild, f"ReactionRoleModal on_submit: {e}")
+                await modal_interaction.response.send_message("❌ Erreur lors de la création du Reaction Role.", ephemeral=True)
+
+    @app_commands.command(name="creer_reaction_role", description="Crée un message Reaction Role via modal.")
+    async def creer_reaction_role(self, interaction: discord.Interaction, canal: discord.TextChannel):
+        try:
+            if not await is_admin(interaction.user):
+                return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+            modal = self.ReactionRoleModal()
+            modal.__dict__["channel_object"] = canal
+            await interaction.response.send_modal(modal)
+        except Exception as e:
+            await log_erreur(self.bot, interaction.guild, f"creer_reaction_role: {e}")
+            await interaction.response.send_message("❌ Erreur lors de l'ouverture du formulaire Reaction Role.", ephemeral=True)
+
+    # 3. Commande pour supprimer les N derniers messages d'un canal
+    @app_commands.command(name="clear_messages", description="Supprime les N derniers messages du canal.")
+    async def clear_messages(self, interaction: discord.Interaction, nombre: int):
+        try:
+            if not await is_admin(interaction.user):
+                return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+            if nombre < 1 or nombre > 100:
+                return await interaction.response.send_message("❌ Le nombre doit être compris entre 1 et 100.", ephemeral=True)
+            deleted = await interaction.channel.purge(limit=nombre)
+            await interaction.response.send_message(f"✅ {len(deleted)} messages supprimés.", ephemeral=True)
+        except Exception as e:
+            await log_erreur(self.bot, interaction.guild, f"clear_messages: {e}")
+            await interaction.response.send_message("❌ Erreur lors de la suppression des messages.", ephemeral=True)
+
+    # 4. Commande pour définir le canal d'annonces
+    @app_commands.command(name="definir_annonce", description="Définit le canal réservé aux annonces importantes.")
+    async def definir_annonce(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        try:
+            if not await is_admin(interaction.user):
+                return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+            config = charger_config()
+            config["annonce_channel"] = str(salon.id)
+            sauvegarder_config(config)
+            await interaction.response.send_message(f"✅ Le canal d'annonces a été défini : {salon.mention}", ephemeral=True)
+        except Exception as e:
+            await log_erreur(self.bot, interaction.guild, f"definir_annonce: {e}")
+            await interaction.response.send_message("❌ Erreur lors de la configuration du canal d'annonces.", ephemeral=True)
+
 
 async def setup_admin_commands(bot):
     await bot.add_cog(AdminCommands(bot))
