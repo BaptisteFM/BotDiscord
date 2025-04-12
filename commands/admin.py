@@ -94,6 +94,37 @@ class AdminCommands(commands.Cog):
         except Exception as e:
             await log_erreur(self.bot, interaction.guild, f"creer_categorie\n{e}")
             await interaction.response.send_message("❌ Erreur lors de la création de la catégorie.", ephemeral=True)
+    @app_commands.command(
+        name="creer_categorie_privee",
+        description="Crée une catégorie privée pour un rôle donné, avec emoji en option."
+    )
+    @app_commands.describe(
+        nom_de_categorie="Nom de la catégorie à créer (vous pouvez inclure un emoji)",
+        role="Rôle qui aura accès à cette catégorie"
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def creer_categorie_privee(self, interaction: discord.Interaction, nom_de_categorie: str, role: discord.Role):
+        try:
+            if not await is_admin(interaction.user):
+                return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+            
+            # Définir les permissions pour la catégorie privée
+            overwrites = {
+                interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                role: discord.PermissionOverwrite(read_messages=True)
+            }
+            # Créer la catégorie
+            category = await interaction.guild.create_category(name=nom_de_categorie, overwrites=overwrites)
+            await interaction.response.send_message(
+                f"✅ Catégorie privée **{category.name}** créée avec accès pour {role.mention}.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await log_erreur(self.bot, interaction.guild, f"creer_categorie_privee: {e}")
+            await interaction.response.send_message(
+                "❌ Erreur lors de la création de la catégorie privée.",
+                ephemeral=True
+            )    
 
     @app_commands.command(name="creer_salon", description="Crée un salon texte ou vocal dans une catégorie existante.")
     @app_commands.describe(nom_salon="Nom du nouveau salon", type_salon="Type de salon : texte ou vocal", categorie="Sélectionne la catégorie existante")
