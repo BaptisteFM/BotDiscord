@@ -32,6 +32,7 @@ class UtilisateurCommands(commands.Cog):
         embed = discord.Embed(title="Nouvelle question méthodo", description=question, color=discord.Color.blurple())
         embed.set_footer(text=f"Posée par {interaction.user.display_name}")
         await interaction.channel.send(embed=embed)
+        await interaction.followup.send("✅ Ta question a été envoyée !", ephemeral=True)
 
     @app_commands.command(name="conseil_aleatoire", description="Donne un conseil de travail aléatoire.")
     async def conseil_aleatoire(self, interaction: discord.Interaction):
@@ -89,6 +90,7 @@ class UtilisateurCommands(commands.Cog):
             )
 
             async def on_submit(modal_interaction: discord.Interaction):
+                await modal_interaction.response.defer(thinking=False, ephemeral=True)
                 user = modal_interaction.user
                 guild = modal_interaction.guild
 
@@ -118,7 +120,7 @@ class UtilisateurCommands(commands.Cog):
                 embed = discord.Embed(title="Demande d'aide sur un cours", description=description, color=discord.Color.blue())
                 embed.set_footer(text=f"Demandée par {user.display_name}")
                 view = CoursAideView(user, category, temp_role)
-                await modal_interaction.response.send_message(embed=embed, view=view)
+                await modal_interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
         class CoursAideView(discord.ui.View):
             def __init__(self, demandeur: discord.Member, category: discord.CategoryChannel, temp_role: discord.Role):
@@ -141,13 +143,10 @@ class UtilisateurCommands(commands.Cog):
                     return await interaction.response.send_message("❌ Seul le demandeur peut supprimer cette demande.", ephemeral=True)
                 try:
                     await self.category.delete()
-                except Exception as e:
-                    return await interaction.response.send_message(f"❌ Erreur lors de la suppression de la catégorie : {e}", ephemeral=True)
-                try:
                     await self.demandeur.remove_roles(self.temp_role)
+                    await interaction.response.send_message("✅ Demande supprimée ; la catégorie privée et le rôle temporaire ont été retirés.", ephemeral=True)
                 except Exception as e:
-                    return await interaction.response.send_message(f"❌ Erreur lors du retrait du rôle : {e}", ephemeral=True)
-                await interaction.response.send_message("✅ Demande supprimée ; la catégorie privée et le rôle temporaire ont été retirés.", ephemeral=True)
+                    await interaction.response.send_message(f"❌ Erreur lors de la suppression : {e}", ephemeral=True)
 
         await interaction.response.send_modal(CoursAideModal())
 
