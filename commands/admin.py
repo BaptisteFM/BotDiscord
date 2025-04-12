@@ -13,7 +13,7 @@ from utils.utils import (
     save_reaction_role_mapping,
     charger_config,
     sauvegarder_config,
-    log_erreur  # ✅ Fonction centralisée de log
+    log_erreur
 )
 
 class AdminCommands(commands.Cog):
@@ -27,6 +27,7 @@ class AdminCommands(commands.Cog):
         try:
             if not await is_admin(interaction.user):
                 return await interaction.response.send_message("❌ Vous devez être administrateur.", ephemeral=True)
+            # ATTENTION : Assurez-vous d'utiliser des noms de commandes actuels, par exemple "cours_aide" et non "besoin_d_aide"
             definir_salon_autorise(nom_commande, salon.id)
             await interaction.response.send_message(f"✅ Salon défini pour `{nom_commande}` : {salon.mention}", ephemeral=True)
         except Exception as e:
@@ -78,7 +79,6 @@ class AdminCommands(commands.Cog):
         except Exception as e:
             await interaction.response.send_message("❌ Erreur lors de la configuration du salon de logs.", ephemeral=True)
 
-    # ───────────── Création de rôles / catégories / salons ─────────────
     @app_commands.command(name="creer_role", description="Crée un rôle s’il n’existe pas déjà.")
     async def creer_role(self, interaction: discord.Interaction, nom_du_role: str):
         try:
@@ -118,7 +118,6 @@ class AdminCommands(commands.Cog):
             await log_erreur(self.bot, interaction.guild, f"creer_salon\n{e}")
             await interaction.response.send_message("❌ Erreur lors de la création du salon.", ephemeral=True)
 
-    # ───────────── Commande pour définir le rôle d’aide ─────────────
     @app_commands.command(name="definir_role_aide", description="Définit le rôle ping pour aider les étudiants.")
     async def definir_role_aide(self, interaction: discord.Interaction, role: discord.Role):
         try:
@@ -130,7 +129,6 @@ class AdminCommands(commands.Cog):
             await log_erreur(self.bot, interaction.guild, f"definir_role_aide\n{e}")
             await interaction.response.send_message("❌ Erreur lors de la configuration du rôle.", ephemeral=True)
 
-    # ───────────── Modal : envoyer un message formaté ─────────────
     @app_commands.command(name="envoyer_message", description="Envoie un message formaté dans un salon via modal.")
     async def envoyer_message(self, interaction: discord.Interaction, channel: discord.TextChannel):
         try:
@@ -159,7 +157,19 @@ class AdminCommands(commands.Cog):
         except Exception as e:
             await log_erreur(self.bot, interaction.guild, f"envoyer_message\n{e}")
             await interaction.response.send_message("❌ Erreur lors de l’ouverture du modal.", ephemeral=True)
+    
+    @app_commands.command(name="definir_journal_burnout", description="Définit le salon réservé aux signalements de burnout.")
+    async def definir_journal_burnout(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        try:
+            if not await is_admin(interaction.user):
+                return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+            config = charger_config()
+            config["journal_burnout_channel"] = str(salon.id)
+            sauvegarder_config(config)
+            await interaction.response.send_message(f"✅ Le salon pour les signalements de burnout a été défini : {salon.mention}", ephemeral=True)
+        except Exception as e:
+            await log_erreur(self.bot, interaction.guild, f"definir_journal_burnout: {e}")
+            await interaction.response.send_message("❌ Erreur lors de la configuration du salon de burnout.", ephemeral=True)
 
-# ───────────── Ajout du Cog ─────────────
 async def setup_admin_commands(bot):
     await bot.add_cog(AdminCommands(bot))

@@ -7,7 +7,7 @@ from utils.utils import (
     get_or_create_role,
     get_or_create_category,
     charger_config,
-    log_erreur  # ✅ ajout
+    log_erreur
 )
 
 class UtilisateurCommands(commands.Cog):
@@ -102,7 +102,7 @@ class UtilisateurCommands(commands.Cog):
             return
 
         class CoursAideModal(discord.ui.Modal, title="Demande d'aide sur un cours"):
-            cours = discord.ui.TextInput(label="Cours concerné", placeholder="Ex : Mathématiques, Physique, etc.", required=True)
+            cours = discord.ui.TextInput(label="Cours concerné", placeholder="Ex: Mathématiques, Physique, etc.", required=True)
             details = discord.ui.TextInput(
                 label="Détaillez votre problème",
                 style=discord.TextStyle.paragraph,
@@ -111,18 +111,21 @@ class UtilisateurCommands(commands.Cog):
             )
 
             async def on_submit(self, modal_interaction: discord.Interaction):
-                await modal_interaction.response.defer(ephemeral=True)
+                await modal_interaction.response.defer()  # Publication publique
                 try:
                     user = modal_interaction.user
                     guild = modal_interaction.guild
 
+                    # Création d'un rôle temporaire pour cette demande d'aide
                     temp_role = await get_or_create_role(guild, f"CoursAide-{user.name}-{user.id}")
                     await user.add_roles(temp_role)
 
+                    # Récupération du rôle d'aide configuré par l'admin
                     config = charger_config()
                     role_aide_id = config.get("role_aide")
                     role_aide = guild.get_role(int(role_aide_id)) if role_aide_id else None
 
+                    # Définition des permissions pour la catégorie
                     overwrites = {
                         guild.default_role: discord.PermissionOverwrite(read_messages=False),
                         temp_role: discord.PermissionOverwrite(read_messages=True, send_messages=True)
@@ -130,19 +133,25 @@ class UtilisateurCommands(commands.Cog):
                     if role_aide:
                         overwrites[role_aide] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
-                    category = await guild.create_category(f"cours-aide-{user.name}-{user.id}".lower(), overwrites=overwrites)
+                    # Création de la catégorie privée et des salons correspondants
+                    category = await get_or_create_category(guild, f"cours-aide-{user.name}-{user.id}".lower())
+                    await category.edit(overwrites=overwrites)
                     discussion_channel = await guild.create_text_channel("discussion", category=category)
                     await guild.create_voice_channel("support-voice", category=category)
 
-                    if role_aide:
-                        await discussion_channel.send(f"🔔 {role_aide.mention} une demande d'aide a été créée par {user.mention} !")
+                    # Envoi dans le salon de discussion : ping du rôle et récapitulatif de la demande
+                    message_content = (
+                        f"🔔 {role_aide.mention if role_aide else ''} Une demande d'aide a été créée par {user.mention} !\n"
+                        f"**Cours :** {self.cours.value}\n**Détails :** {self.details.value}"
+                    )
+                    await discussion_channel.send(message_content)
 
+                    # Création et envoi public d'un embed récapitulatif avec vue
                     description = f"**Cours :** {self.cours.value}\n**Détails :** {self.details.value}"
                     embed = discord.Embed(title="Demande d'aide sur un cours", description=description, color=discord.Color.blue())
                     embed.set_footer(text=f"Demandée par {user.display_name}")
                     view = CoursAideView(user, category, temp_role)
-                    await modal_interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
+                    await modal_interaction.followup.send(embed=embed, view=view)
                 except Exception as e:
                     await modal_interaction.followup.send("❌ Une erreur est survenue lors de la création de l'espace d'aide.", ephemeral=True)
                     await log_erreur(self.bot, modal_interaction.guild, f"Erreur dans /cours_aide (on_submit) : {e}")
@@ -153,7 +162,6 @@ class UtilisateurCommands(commands.Cog):
             await log_erreur(self.bot, interaction.guild, f"Erreur lors de l'ouverture du modal /cours_aide : {e}")
             await interaction.followup.send("❌ Erreur lors de l'ouverture du formulaire.", ephemeral=True)
 
-# ───────────── VUE BOUTONS ─────────────
 class CoursAideView(discord.ui.View):
     def __init__(self, demandeur: discord.Member, category: discord.CategoryChannel, temp_role: discord.Role):
         super().__init__(timeout=None)
@@ -174,12 +182,18 @@ class CoursAideView(discord.ui.View):
         if interaction.user != self.demandeur:
             return await interaction.response.send_message("❌ Seul le demandeur peut supprimer cette demande.", ephemeral=True)
         try:
+            # Retirer le rôle temporaire de tous les membres qui l'ont
+            for member in list(self.temp_role.members):
+                await member.remove_roles(self.temp_role)
+            # Supprimer le rôle de la guilde
+            await self.temp_role.delete()
+            # Supprimer la catégorie privée et tous ses salons
             await self.category.delete()
-            await self.demandeur.remove_roles(self.temp_role)
-            await interaction.response.send_message("✅ Demande supprimée ; la catégorie privée et le rôle temporaire ont été retirés.", ephemeral=True)
+            # Supprimer le message public (celui contenant l'embed et la vue)
+            await interaction.message.delete()
+            await interaction.followup.send("✅ Demande supprimée : la catégorie privée et le rôle temporaire ont été retirés.", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"❌ Erreur lors de la suppression : {e}", ephemeral=True)
 
-# ───────────── SETUP ─────────────
 async def setup_user_commands(bot):
     await bot.add_cog(UtilisateurCommands(bot))

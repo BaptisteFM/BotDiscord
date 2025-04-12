@@ -69,7 +69,8 @@ async def load_cogs():
         from commands.admin import setup_admin_commands
         from commands.utilisateur import setup_user_commands
         from commands.support import setup_support_commands
-
+        from commands.test_command import setup as setup_test
+        await setup_test(bot)
         await setup_admin_commands(bot)
         print("✅ AdminCommands chargé")
         await setup_user_commands(bot)

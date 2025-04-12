@@ -1,198 +1,76 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-from utils.utils import (
-    salon_est_autorise, is_admin, get_or_create_role,
-    get_redirection, charger_config, log_erreur
-)
 import datetime
 import random
+from utils.utils import charger_config, log_erreur
 
-class SupportCommands(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
+# ───────────── Modal pour le journal burnout ─────────────
+class JournalBurnoutModal(discord.ui.Modal, title="Journal Burn-Out"):
+    message = discord.ui.TextInput(
+        label="Décris ton état (anonymement)",
+        style=discord.TextStyle.paragraph,
+        placeholder="Ex: Je suis épuisé(e), démotivé(e), etc...",
+        required=True
+    )
+    emoji = discord.ui.TextInput(
+        label="Emoji d'état (optionnel)",
+        style=discord.TextStyle.short,
+        placeholder="Ex: 😞, 😴, etc.",
+        required=False
+    )
 
-    # ───────────── /besoin_d_aide ─────────────
-    @app_commands.command(name="besoin_d_aide", description="Explique ton besoin et ouvre un espace d'entraide.")
-    async def besoin_d_aide(self, interaction: discord.Interaction):
-        # Vérifie si le salon est autorisé
-        if not await salon_est_autorise("besoin_d_aide", interaction.channel_id, interaction.user):
-            return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
-        
-        # Définition du modal
-        class ModalBesoinAide(discord.ui.Modal, title="Explique ton besoin d’aide"):
-            sujet = discord.ui.TextInput(
-                label="Sujet", 
-                placeholder="Ex: Difficultés en anatomie", 
-                max_length=100, 
-                required=True
-            )
-            description = discord.ui.TextInput(
-                label="Détaille ton besoin", 
-                style=discord.TextStyle.paragraph, 
-                max_length=500, 
-                required=True
-            )
-
-            async def on_submit(self_inner, modal_interaction: discord.Interaction):
-                try:
-                    # Utilisation de modal_interaction pour garantir la validité de l'objet interaction
-                    await modal_interaction.response.defer(ephemeral=True)
-                    user = modal_interaction.user
-                    guild = modal_interaction.guild
-                    print(f"[DEBUG] Modal soumis par {user.name} sur {guild.name}")
-
-                    # Crée un rôle temporaire unique en utilisant uniquement l'ID pour éviter les dépassements
-                    role_name = f"Aide-{user.id}"
-                    role_temp = await get_or_create_role(guild, role_name)
-                    await user.add_roles(role_temp)
-
-                    # Récupère le rôle d’aide défini dans la config
-                    config = charger_config()
-                    role_aide_id = config.get("role_aide")
-                    role_aide = guild.get_role(int(role_aide_id)) if role_aide_id else None
-
-                    # Définition des permissions (overwrites)
-                    overwrites = {
-                        guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                        role_temp: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-                    }
-                    if role_aide:
-                        overwrites[role_aide] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-
-                    # Création de la catégorie privée et des salons avec des noms courts
-                    category_name = f"aide-{user.id}"
-                    category = await guild.create_category(category_name, overwrites=overwrites)
-                    text_channel = await guild.create_text_channel("écris-ici", category=category)
-                    await guild.create_voice_channel("parle-ici", category=category)
-
-                    # Création de la vue avec boutons
-                    view = BoutonsAide(user, category, role_temp)
-
-                    # Crée l'embed à envoyer dans le salon où la commande a été exécutée.
-                    embed = discord.Embed(
-                        title=f"🔎 Besoin d'aide : {self_inner.sujet.value}",
-                        description=self_inner.description.value,
-                        color=discord.Color.orange(),
-                        timestamp=datetime.datetime.utcnow()
-                    )
-                    embed.set_footer(text=f"Demandé par {user.display_name}")
-
-                    # IMPORTANT : Utilise modal_interaction.channel pour envoyer le message public
-                    await modal_interaction.channel.send(embed=embed, view=view)
-
-                    # Envoie une notification dans le salon privé, si un rôle d’aide est défini
-                    if role_aide:
-                        await text_channel.send(
-                            f"🔔 {role_aide.mention}, {user.mention} a besoin d'aide !\n\n"
-                            f"**Sujet :** {self_inner.sujet.value}\n"
-                            f"**Détails :** {self_inner.description.value}"
-                        )
-
-                    await modal_interaction.followup.send("✅ Espace privé créé et demande envoyée.", ephemeral=True)
-
-                except Exception as e:
-                    print(f"[ERREUR Modal on_submit] {e}")
-                    await modal_interaction.followup.send("❌ Une erreur est survenue dans le formulaire.", ephemeral=True)
-                    await log_erreur(self.bot, modal_interaction.guild, f"Erreur dans on_submit (/besoin_d_aide) : {e}")
-
-        # Bloc protégé pour envoyer le modal
+    async def on_submit(self, interaction: discord.Interaction):
         try:
-            await interaction.response.send_modal(ModalBesoinAide())
-        except Exception as e:
-            print(f"[ERREUR Modal affichage] {e}")
-            await interaction.followup.send("❌ Erreur lors de l'ouverture du formulaire.", ephemeral=True)
-            await log_erreur(self.bot, interaction.guild, f"Erreur lors de l'ouverture du modal dans /besoin_d_aide : {e}")
+            # Récupération de la configuration pour le salon dédié aux signalements burnout
+            config = charger_config()
+            burnout_channel_id = config.get("journal_burnout_channel")
+            if not burnout_channel_id:
+                await interaction.response.send_message("❌ Le salon pour le journal burnout n'est pas configuré.", ephemeral=True)
+                return
+            
+            channel = interaction.guild.get_channel(int(burnout_channel_id))
+            if not channel:
+                await interaction.response.send_message("❌ Le salon pour le journal burnout est introuvable.", ephemeral=True)
+                return
 
-    # ───────────── /journal_burnout ─────────────
-    @app_commands.command(name="journal_burnout", description="Signale un mal-être ou burn-out.")
-    @app_commands.describe(message="Décris ce que tu ressens.")
-    async def journal_burnout(self, interaction: discord.Interaction, message: str):
-        if not await salon_est_autorise("journal_burnout", interaction.channel_id, interaction.user):
-            return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
+            # Choix de l'emoji : utilise celui fourni ou en sélectionne un aléatoirement
+            if self.emoji.value.strip():
+                emoji_used = self.emoji.value.strip()
+            else:
+                emoji_options = ["😞", "😔", "😢", "😴", "😓", "💤"]
+                emoji_used = random.choice(emoji_options)
 
-        try:
-            await interaction.response.defer(ephemeral=True)
-            channel_id = get_redirection("burnout")
-            salon = interaction.guild.get_channel(int(channel_id)) if channel_id else None
-            if not salon:
-                return await interaction.followup.send("❌ Salon de redirection non trouvé.", ephemeral=True)
-
+            # Création d'un embed pour afficher le signalement
             embed = discord.Embed(
-                title="🚨 Signalement Burn-Out",
-                description=message,
+                title="🚨 Signalement de Burn-Out",
+                description=self.message.value,
                 color=discord.Color.red(),
                 timestamp=datetime.datetime.utcnow()
             )
-            embed.set_footer(text=f"Par {interaction.user.display_name}")
-            await salon.send(embed=embed)
-            await interaction.followup.send("🆘 Ton message a été transmis à l’équipe.", ephemeral=True)
+            embed.add_field(name="État", value=emoji_used, inline=True)
+            embed.set_footer(text="Signalé anonymement")
+            
+            # Envoi du signalement dans le salon réservé aux tuteurs/admins
+            await channel.send(embed=embed)
+            await interaction.response.send_message("✅ Ton signalement a été envoyé. Prends soin de toi.", ephemeral=True)
         except Exception as e:
-            await interaction.followup.send("❌ Une erreur est survenue.", ephemeral=True)
-            await log_erreur(self.bot, interaction.guild, f"Erreur dans `journal_burnout` : {e}")
+            await log_erreur(interaction.client, interaction.guild, f"JournalBurnoutModal on_submit: {e}")
+            await interaction.response.send_message("❌ Une erreur est survenue lors de l'envoi de ton signalement.", ephemeral=True)
 
-    # ───────────── /auto_motivation ─────────────
-    @app_commands.command(name="auto_motivation", description="Reçois un boost de motivation.")
-    async def auto_motivation(self, interaction: discord.Interaction):
-        if not await salon_est_autorise("auto_motivation", interaction.channel_id, interaction.user):
-            return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
+# ───────────── Commandes Support ─────────────
+class SupportCommands(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
 
+    @app_commands.command(name="journal_burnout", description="Signale anonymement une baisse de moral, une fatigue mentale ou un burn-out.")
+    async def journal_burnout(self, interaction: discord.Interaction):
         try:
-            citations = [
-                "🔥 Chaque jour compte, ne lâche rien !",
-                "🎯 Pense à ton objectif et dépasse tes limites.",
-                "🌟 La discipline forge la réussite.",
-                "💪 Fais ce que tu dois pour être fier de toi demain."
-            ]
-            await interaction.response.send_message(f"💬 {random.choice(citations)}", ephemeral=True)
+            await interaction.response.send_modal(JournalBurnoutModal())
         except Exception as e:
-            await log_erreur(self.bot, interaction.guild, f"Erreur dans `auto_motivation` : {e}")
+            await log_erreur(interaction.client, interaction.guild, f"journal_burnout: {e}")
+            await interaction.response.send_message("❌ Une erreur est survenue lors de l'ouverture du formulaire.", ephemeral=True)
 
-    # ───────────── /challenge_semaine ─────────────
-    @app_commands.command(name="challenge_semaine", description="Reçois un défi à appliquer cette semaine.")
-    async def challenge_semaine(self, interaction: discord.Interaction):
-        if not await salon_est_autorise("challenge_semaine", interaction.channel_id, interaction.user):
-            return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
-
-        try:
-            challenges = [
-                "🛌 Se coucher avant 23h chaque soir.",
-                "📵 Une journée sans réseaux sociaux.",
-                "📚 Revoir ses erreurs chaque soir.",
-                "🤝 Aider un camarade en difficulté.",
-                "🧘 Faire 10 minutes de méditation quotidienne."
-            ]
-            await interaction.response.send_message(f"📆 Challenge : **{random.choice(challenges)}**", ephemeral=True)
-        except Exception as e:
-            await log_erreur(self.bot, interaction.guild, f"Erreur dans `challenge_semaine` : {e}")
-
-# ───────────── VUE AVEC BOUTONS ─────────────
-class BoutonsAide(discord.ui.View):
-    def __init__(self, demandeur, category, temp_role):
-        super().__init__(timeout=None)
-        self.demandeur = demandeur
-        self.category = category
-        self.temp_role = temp_role
-
-    @discord.ui.button(label="J’ai aussi ce problème", style=discord.ButtonStyle.primary)
-    async def rejoindre(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.temp_role not in interaction.user.roles:
-            await interaction.user.add_roles(self.temp_role)
-            await interaction.response.send_message("✅ Vous avez rejoint cet espace d’aide.", ephemeral=True)
-        else:
-            await interaction.response.send_message("ℹ️ Vous êtes déjà dans cet espace.", ephemeral=True)
-
-    @discord.ui.button(label="Supprimer la demande", style=discord.ButtonStyle.danger)
-    async def supprimer(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user != self.demandeur:
-            return await interaction.response.send_message("❌ Seul le demandeur peut supprimer cette demande.", ephemeral=True)
-        try:
-            await self.category.delete()
-            await self.demandeur.remove_roles(self.temp_role)
-            await interaction.response.send_message("✅ Demande supprimée.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Erreur lors de la suppression : {e}", ephemeral=True)
-
-# ───────────── SETUP COG ─────────────
-async def setup_support_commands(bot):
+# ───────────── Setup du Cog Support ─────────────
+async def setup_support_commands(bot: commands.Bot):
     await bot.add_cog(SupportCommands(bot))
