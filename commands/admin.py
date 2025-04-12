@@ -153,7 +153,7 @@ class AdminCommands(commands.Cog):
         sauvegarder_config(config)
         await interaction.response.send_message(f"✅ Le salon pour les signalements de burnout a été défini : {salon.mention}", ephemeral=True)
 
-    # Nouvelle commande : Définir le rôle d'accès pour les commandes utilisateurs/support
+    # === Nouvelle commande : Définir le rôle d'accès pour les commandes utilisateurs/support ===
     @app_commands.command(name="definir_role_utilisateur", description="Définit le rôle qui permet d'accéder aux commandes utilisateurs et support.")
     @app_commands.default_permissions(administrator=True)
     async def definir_role_utilisateur(self, interaction: discord.Interaction, role: discord.Role):
@@ -164,7 +164,7 @@ class AdminCommands(commands.Cog):
         sauvegarder_config(config)
         await interaction.response.send_message(f"✅ Rôle d'accès utilisateur défini : {role.mention}", ephemeral=True)
 
-    # Nouvelle commande : Définir les permissions pour une commande admin/whitelist
+    # === Nouvelle commande : Définir ou modifier les permissions pour une commande admin/whitelist ===
     @app_commands.command(name="definir_permission", description="Définit la permission d'accès pour une commande admin/whitelist.")
     @app_commands.default_permissions(administrator=True)
     async def definir_permission(self, interaction: discord.Interaction, commande: str, role: discord.Role):
@@ -176,7 +176,24 @@ class AdminCommands(commands.Cog):
         sauvegarder_permissions(permissions)
         await interaction.response.send_message(f"✅ Permission définie pour la commande `{commande}` avec le rôle {role.mention}.", ephemeral=True)
 
-    # Nouvelle commande : Lister les commandes admin/whitelist et leurs permissions
+    @definir_permission.autocomplete("commande")
+    async def autocomplete_command_permission(self, interaction: discord.Interaction, current: str):
+        # Liste prédéfinie des commandes admin et whitelist
+        commands_list = [
+            "definir_salon", "definir_redirection", "definir_config", "definir_log_erreurs",
+            "creer_role", "creer_categorie", "creer_salon", "definir_role_aide",
+            "envoyer_message", "definir_journal_burnout", "definir_permission",
+            "lister_commandes_admin", "creer_reaction_role", "clear_messages", "definir_annonce",
+            "ajouter_whitelist", "retirer_whitelist", "valider_utilisateur", "creer_promo",
+            "assigner_eleve", "signaler_inactif", "creer_binome", "statistiques_serveur",
+            "generer_rapport_hebdo", "lock_salon", "purger_role",
+            "activer_mode_examen", "desactiver_mode_examen", "maintenance_on", "maintenance_off",
+            "forcer_validation"
+        ]
+        suggestions = [app_commands.Choice(name=cmd, value=cmd) for cmd in commands_list if current.lower() in cmd.lower()]
+        return suggestions[:25]
+
+    # === Nouvelle commande : Lister les commandes admin/whitelist et leurs permissions actuelles ===
     @app_commands.command(name="lister_commandes_admin", description="Liste les commandes admin/whitelist et leurs permissions actuelles.")
     @app_commands.default_permissions(administrator=True)
     async def lister_commandes_admin(self, interaction: discord.Interaction):
@@ -253,7 +270,6 @@ class AdminCommands(commands.Cog):
                 except Exception as e:
                     await log_erreur(self.bot, modal_interaction.guild, f"ReactionRoleModal on_submit: {e}")
                     await modal_interaction.response.send_message("❌ Erreur lors de la création du Reaction Role.", ephemeral=True)
-
         modal = ReactionRoleModal()
         modal.__dict__["channel_object"] = canal
         await interaction.response.send_modal(modal)
@@ -291,7 +307,8 @@ class AdminCommands(commands.Cog):
         else:
             await interaction.response.send_message("ℹ️ Cet utilisateur est déjà dans la whitelist.", ephemeral=True)
 
-    @app_commands.command(name="retirer_whitelist", description="Retire un utilisateur de la whitelist d'accès au serveur.")
+    # === Mise à jour de la commande retirer_whitelist ===
+    @app_commands.command(name="retirer_whitelist", description="Retire un utilisateur de la whitelist et réinitialise son statut.")
     @app_commands.default_permissions(administrator=True)
     async def retirer_whitelist(self, interaction: discord.Interaction, utilisateur: discord.Member):
         if not await is_admin(interaction.user):
@@ -300,7 +317,14 @@ class AdminCommands(commands.Cog):
         if utilisateur.id in whitelist:
             whitelist.remove(utilisateur.id)
             self.sauvegarder_whitelist(whitelist)
-            await interaction.response.send_message(f"✅ {utilisateur.mention} a été retiré de la whitelist.", ephemeral=True)
+            # Retrait du rôle "Membre" et affectation du rôle "Non vérifié"
+            role_membre = discord.utils.get(interaction.guild.roles, name="Membre")
+            role_non_verifie = discord.utils.get(interaction.guild.roles, name="Non vérifié")
+            if role_membre and role_membre in utilisateur.roles:
+                await utilisateur.remove_roles(role_membre)
+            if role_non_verifie and role_non_verifie not in utilisateur.roles:
+                await utilisateur.add_roles(role_non_verifie)
+            await interaction.response.send_message(f"✅ {utilisateur.mention} a été retiré de la whitelist et son statut a été réinitialisé.", ephemeral=True)
         else:
             await interaction.response.send_message("ℹ️ Cet utilisateur n'est pas dans la whitelist.", ephemeral=True)
 
