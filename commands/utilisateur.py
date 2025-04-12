@@ -216,7 +216,13 @@ class CoursAideView(discord.ui.View):
                 await member.remove_roles(self.temp_role)
             # Supprimer le rôle temporaire
             await self.temp_role.delete()
-            # Supprimer la catégorie et tous les salons qu'elle contient
+            # Supprimer tous les salons dans la catégorie
+            for channel in self.category.channels:
+                try:
+                    await channel.delete()
+                except Exception as e:
+                    await log_erreur(interaction.client, interaction.guild, f"Erreur lors de la suppression du salon {channel.name}: {e}")
+            # Supprimer la catégorie
             await self.category.delete()
             # Supprimer le message de la vue (si possible)
             try:
