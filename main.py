@@ -80,8 +80,7 @@ async def load_cogs():
         await setup_support_commands(bot)
         print("✅ SupportCommands chargé")
         await setup_events(bot)
-        await whitelist.setup(bot)
-        
+        await whitelist.setup(bot)      
     except Exception as e:
         print(f"❌ Erreur lors du chargement des Cogs : {e}")
 

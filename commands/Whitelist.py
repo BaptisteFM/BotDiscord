@@ -9,12 +9,13 @@ DEMANDES_PATH = "data/demandes_whitelist.json"
 
 # ========================== COG PRINCIPAL ==========================
 
-class Whitelist(commands.Cog, name="Whitelist"):
+class whitelist(commands.Cog, name="whitelist"):
     def __init__(self, bot):
         self.bot = bot
         self.rappel_demande.start()
 
     # ========== UTILS JSON ==========
+
     def charger_demandes(self):
         if not os.path.exists(DEMANDES_PATH):
             return []
@@ -42,6 +43,7 @@ class Whitelist(commands.Cog, name="Whitelist"):
         self.sauvegarder_demandes(nouvelles)
 
     # ========== COMMANDE UTILISATEUR ==========
+
     @app_commands.command(name="demander_acces", description="Demande l'accès au serveur (réservé aux nouveaux membres)")
     async def demander_acces(self, interaction: discord.Interaction):
         try:
@@ -71,6 +73,7 @@ class Whitelist(commands.Cog, name="Whitelist"):
             await interaction.response.send_message("❌ Une erreur est survenue pendant la demande.", ephemeral=True)
 
     # ========== COMMANDES ADMIN ==========
+
     @app_commands.command(name="definir_journal_validation", description="Définit le salon où les demandes seront journalisées.")
     async def definir_journal_validation(self, interaction: discord.Interaction, salon: discord.TextChannel):
         if not await is_admin(interaction.user):
@@ -99,6 +102,7 @@ class Whitelist(commands.Cog, name="Whitelist"):
         await interaction.response.send_message("✅ Message de validation enregistré.", ephemeral=True)
 
     # ========== TÂCHE DE RAPPEL ==========
+
     @tasks.loop(minutes=60)
     async def rappel_demande(self):
         try:
@@ -151,7 +155,7 @@ class ValidationButtons(discord.ui.View):
             except:
                 pass
 
-            cog = self.bot.get_cog("Whitelist")
+            cog = self.bot.get_cog("whitelist")
             if cog:
                 cog.supprimer_demande(user.id)
 
@@ -173,7 +177,7 @@ class ValidationButtons(discord.ui.View):
             except:
                 pass
 
-            cog = self.bot.get_cog("Whitelist")
+            cog = self.bot.get_cog("whitelist")
             if cog:
                 cog.supprimer_demande(user.id)
 
@@ -186,4 +190,4 @@ class ValidationButtons(discord.ui.View):
 # ========================== SETUP ==========================
 
 async def setup(bot):
-    await bot.add_cog(Whitelist(bot))
+    await bot.add_cog(whitelist(bot))
