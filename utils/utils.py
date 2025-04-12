@@ -2,8 +2,8 @@ import json
 import os
 import discord
 
-# Dossier persistant sur Render
-DISK_PATH = "/DISK"
+# Dossier persistant sur Render (modifié : /data au lieu de /DISK)
+DISK_PATH = "/data"
 
 # Fichier de config principal (pour les salons autorisés et options personnalisables)
 CONFIG_PATH = os.path.join(DISK_PATH, "config.json")
