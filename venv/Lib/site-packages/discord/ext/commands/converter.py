@@ -82,7 +82,6 @@ __all__ = (
     'GuildChannelConverter',
     'GuildStickerConverter',
     'ScheduledEventConverter',
-    'SoundboardSoundConverter',
     'clean_content',
     'Greedy',
     'Range',
@@ -126,10 +125,6 @@ class Converter(Protocol[T_co]):
         If an error is found while converting, it is recommended to
         raise a :exc:`.CommandError` derived exception as it will
         properly propagate to the error handlers.
-
-        Note that if this method is called manually, :exc:`Exception`
-        should be caught to handle the cases where a subclass does
-        not explicitly inherit from :exc:`.CommandError`.
 
         Parameters
         -----------
@@ -443,36 +438,19 @@ class GuildChannelConverter(IDConverter[discord.abc.GuildChannel]):
 
     1. Lookup by ID.
     2. Lookup by mention.
-    3. Lookup by channel URL.
-    4. Lookup by name.
+    3. Lookup by name.
 
     .. versionadded:: 2.0
-
-    .. versionchanged:: 2.4
-        Add lookup by channel URL, accessed via "Copy Link" in the Discord client within channels.
     """
 
     async def convert(self, ctx: Context[BotT], argument: str) -> discord.abc.GuildChannel:
         return self._resolve_channel(ctx, argument, 'channels', discord.abc.GuildChannel)
 
     @staticmethod
-    def _parse_from_url(argument: str) -> Optional[re.Match[str]]:
-        link_regex = re.compile(
-            r'https?://(?:(?:ptb|canary|www)\.)?discord(?:app)?\.com/channels/'
-            r'(?:[0-9]{15,20}|@me)'
-            r'/([0-9]{15,20})(?:/(?:[0-9]{15,20})/?)?$'
-        )
-        return link_regex.match(argument)
-
-    @staticmethod
     def _resolve_channel(ctx: Context[BotT], argument: str, attribute: str, type: Type[CT]) -> CT:
         bot = ctx.bot
 
-        match = (
-            IDConverter._get_id_match(argument)
-            or re.match(r'<#([0-9]{15,20})>$', argument)
-            or GuildChannelConverter._parse_from_url(argument)
-        )
+        match = IDConverter._get_id_match(argument) or re.match(r'<#([0-9]{15,20})>$', argument)
         result = None
         guild = ctx.guild
 
@@ -502,11 +480,7 @@ class GuildChannelConverter(IDConverter[discord.abc.GuildChannel]):
 
     @staticmethod
     def _resolve_thread(ctx: Context[BotT], argument: str, attribute: str, type: Type[TT]) -> TT:
-        match = (
-            IDConverter._get_id_match(argument)
-            or re.match(r'<#([0-9]{15,20})>$', argument)
-            or GuildChannelConverter._parse_from_url(argument)
-        )
+        match = IDConverter._get_id_match(argument) or re.match(r'<#([0-9]{15,20})>$', argument)
         result = None
         guild = ctx.guild
 
@@ -536,14 +510,10 @@ class TextChannelConverter(IDConverter[discord.TextChannel]):
 
     1. Lookup by ID.
     2. Lookup by mention.
-    3. Lookup by channel URL.
-    4. Lookup by name
+    3. Lookup by name
 
     .. versionchanged:: 1.5
          Raise :exc:`.ChannelNotFound` instead of generic :exc:`.BadArgument`
-
-    .. versionchanged:: 2.4
-        Add lookup by channel URL, accessed via "Copy Link" in the Discord client within channels.
     """
 
     async def convert(self, ctx: Context[BotT], argument: str) -> discord.TextChannel:
@@ -560,14 +530,10 @@ class VoiceChannelConverter(IDConverter[discord.VoiceChannel]):
 
     1. Lookup by ID.
     2. Lookup by mention.
-    3. Lookup by channel URL.
-    4. Lookup by name
+    3. Lookup by name
 
     .. versionchanged:: 1.5
          Raise :exc:`.ChannelNotFound` instead of generic :exc:`.BadArgument`
-
-    .. versionchanged:: 2.4
-        Add lookup by channel URL, accessed via "Copy Link" in the Discord client within channels.
     """
 
     async def convert(self, ctx: Context[BotT], argument: str) -> discord.VoiceChannel:
@@ -586,11 +552,7 @@ class StageChannelConverter(IDConverter[discord.StageChannel]):
 
     1. Lookup by ID.
     2. Lookup by mention.
-    3. Lookup by channel URL.
-    4. Lookup by name
-
-    .. versionchanged:: 2.4
-        Add lookup by channel URL, accessed via "Copy Link" in the Discord client within channels.
+    3. Lookup by name
     """
 
     async def convert(self, ctx: Context[BotT], argument: str) -> discord.StageChannel:
@@ -607,11 +569,7 @@ class CategoryChannelConverter(IDConverter[discord.CategoryChannel]):
 
     1. Lookup by ID.
     2. Lookup by mention.
-    3. Lookup by channel URL.
-    4. Lookup by name
-
-    .. versionchanged:: 2.4
-        Add lookup by channel URL, accessed via "Copy Link" in the Discord client within channels.
+    3. Lookup by name
 
     .. versionchanged:: 1.5
          Raise :exc:`.ChannelNotFound` instead of generic :exc:`.BadArgument`
@@ -630,13 +588,9 @@ class ThreadConverter(IDConverter[discord.Thread]):
 
     1. Lookup by ID.
     2. Lookup by mention.
-    3. Lookup by channel URL.
-    4. Lookup by name.
+    3. Lookup by name.
 
     .. versionadded: 2.0
-
-    .. versionchanged:: 2.4
-        Add lookup by channel URL, accessed via "Copy Link" in the Discord client within channels.
     """
 
     async def convert(self, ctx: Context[BotT], argument: str) -> discord.Thread:
@@ -653,13 +607,9 @@ class ForumChannelConverter(IDConverter[discord.ForumChannel]):
 
     1. Lookup by ID.
     2. Lookup by mention.
-    3. Lookup by channel URL.
-    4. Lookup by name
+    3. Lookup by name
 
     .. versionadded:: 2.0
-
-    .. versionchanged:: 2.4
-        Add lookup by channel URL, accessed via "Copy Link" in the Discord client within channels.
     """
 
     async def convert(self, ctx: Context[BotT], argument: str) -> discord.ForumChannel:
@@ -952,44 +902,6 @@ class ScheduledEventConverter(IDConverter[discord.ScheduledEvent]):
         return result
 
 
-class SoundboardSoundConverter(IDConverter[discord.SoundboardSound]):
-    """Converts to a :class:`~discord.SoundboardSound`.
-
-    Lookups are done for the local guild if available. Otherwise, for a DM context,
-    lookup is done by the global cache.
-
-    The lookup strategy is as follows (in order):
-
-    1. Lookup by ID.
-    2. Lookup by name.
-
-    .. versionadded:: 2.5
-    """
-
-    async def convert(self, ctx: Context[BotT], argument: str) -> discord.SoundboardSound:
-        guild = ctx.guild
-        match = self._get_id_match(argument)
-        result = None
-
-        if match:
-            # ID match
-            sound_id = int(match.group(1))
-            if guild:
-                result = guild.get_soundboard_sound(sound_id)
-            else:
-                result = ctx.bot.get_soundboard_sound(sound_id)
-        else:
-            # lookup by name
-            if guild:
-                result = discord.utils.get(guild.soundboard_sounds, name=argument)
-            else:
-                result = discord.utils.get(ctx.bot.soundboard_sounds, name=argument)
-        if result is None:
-            raise SoundboardSoundNotFound(argument)
-
-        return result
-
-
 class clean_content(Converter[str]):
     """Converts the argument to mention scrubbed version of
     said content.
@@ -1125,7 +1037,7 @@ class Greedy(List[T]):
 
         args = getattr(converter, '__args__', ())
         if discord.utils.PY_310 and converter.__class__ is types.UnionType:  # type: ignore
-            converter = Union[args]
+            converter = Union[args]  # type: ignore
 
         origin = getattr(converter, '__origin__', None)
 
@@ -1138,7 +1050,7 @@ class Greedy(List[T]):
         if origin is Union and type(None) in args:
             raise TypeError(f'Greedy[{converter!r}] is invalid.')
 
-        return cls(converter=converter)  # type: ignore
+        return cls(converter=converter)
 
     @property
     def constructed_converter(self) -> Any:
@@ -1273,7 +1185,7 @@ def _convert_to_bool(argument: str) -> bool:
         raise BadBoolArgument(lowered)
 
 
-_GenericAlias = type(List[T])  # type: ignore
+_GenericAlias = type(List[T])
 
 
 def is_generic_type(tp: Any, *, _GenericAlias: type = _GenericAlias) -> bool:
@@ -1302,7 +1214,6 @@ CONVERTER_MAPPING: Dict[type, Any] = {
     discord.GuildSticker: GuildStickerConverter,
     discord.ScheduledEvent: ScheduledEventConverter,
     discord.ForumChannel: ForumChannelConverter,
-    discord.SoundboardSound: SoundboardSoundConverter,
 }
 
 
@@ -1325,7 +1236,7 @@ async def _actual_conversion(ctx: Context[BotT], converter: Any, argument: str, 
             else:
                 return await converter().convert(ctx, argument)
         elif isinstance(converter, Converter):
-            return await converter.convert(ctx, argument)
+            return await converter.convert(ctx, argument)  # type: ignore
     except CommandError:
         raise
     except Exception as exc:

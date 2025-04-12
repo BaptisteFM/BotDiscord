@@ -4,26 +4,27 @@ from discord.ext import commands
 import random
 from utils.utils import salon_est_autorise, get_or_create_role, get_or_create_category
 
-
 class UtilisateurCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # Conseils pour /conseil_aleatoire
+        # Liste de conseils pour la commande /conseil_aleatoire
         self.conseils = [
             "🧠 Répète tes cours à haute voix comme si tu les expliquais à quelqu’un.",
             "⏱️ Utilise la méthode Pomodoro pour gérer ton temps de travail.",
             "📚 Teste-toi sur des QCM plutôt que de relire passivement.",
-            "📝 Fais des fiches synthétiques par thème au lieu de suivre l'ordre des chapitres.",
-            "🤝 Échange avec tes camarades, enseigner est la meilleure façon d'apprendre."
+            "📝 Fais des fiches synthétiques par thème plutôt que par ordre de cours.",
+            "🤝 Échange avec tes camarades – enseigner est la meilleure façon d'apprendre."
         ]
 
-    # /conseil_methodo
+    # -------------------------------
+    # Commande: /conseil_methodo
+    # Description: Pose une question méthodo (public).
+    # -------------------------------
     @app_commands.command(name="conseil_methodo", description="Pose une question méthodo (public).")
     @app_commands.describe(question="Quelle est ta question méthodo ?")
     async def conseil_methodo(self, interaction: discord.Interaction, question: str):
         if not salon_est_autorise("conseil_methodo", interaction.channel_id):
             return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
-
         embed = discord.Embed(
             title="Nouvelle question méthodo",
             description=question,
@@ -33,21 +34,25 @@ class UtilisateurCommands(commands.Cog):
         await interaction.channel.send(embed=embed)
         await interaction.response.send_message("✅ Ta question a été envoyée !", ephemeral=True)
 
-    # /conseil_aleatoire
+    # -------------------------------
+    # Commande: /conseil_aleatoire
+    # Description: Donne un conseil de travail aléatoire.
+    # -------------------------------
     @app_commands.command(name="conseil_aleatoire", description="Donne un conseil de travail aléatoire.")
     async def conseil_aleatoire(self, interaction: discord.Interaction):
         if not salon_est_autorise("conseil_aleatoire", interaction.channel_id):
             return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
-
         conseil = random.choice(self.conseils)
         await interaction.response.send_message(f"💡 Conseil : **{conseil}**", ephemeral=True)
 
-    # /ressources
+    # -------------------------------
+    # Commande: /ressources
+    # Description: Affiche une liste de ressources utiles.
+    # -------------------------------
     @app_commands.command(name="ressources", description="Liste des ressources utiles.")
     async def ressources(self, interaction: discord.Interaction):
         if not salon_est_autorise("ressources", interaction.channel_id):
             return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
-
         embed = discord.Embed(
             title="Ressources utiles",
             description="Voici quelques liens et documents qui pourraient t'aider :",
@@ -58,35 +63,44 @@ class UtilisateurCommands(commands.Cog):
         embed.add_field(name="🎧 Podcast Motivation", value="[Podcast X](https://podcast.com)", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # /mission_du_jour
+    # -------------------------------
+    # Commande: /mission_du_jour
+    # Description: Propose un mini-défi pour la journée.
+    # -------------------------------
     @app_commands.command(name="mission_du_jour", description="Obtiens un mini-défi pour la journée.")
     async def mission_du_jour(self, interaction: discord.Interaction):
         if not salon_est_autorise("mission_du_jour", interaction.channel_id):
             return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
-
         missions = [
             "📵 Évite les réseaux sociaux jusqu'à 20h.",
-            "🧘‍♂️ Fais 5 min de respiration avant de commencer à réviser.",
+            "🧘‍♂️ Fais 5 min de respiration avant de réviser.",
             "📖 Relis 2 fiches avant le coucher.",
-            "💌 Envoie un message d’encouragement à un camarade.",
+            "💌 Envoie un message d'encouragement à un camarade.",
             "🧹 Range ton espace de travail pour gagner en clarté."
         ]
         await interaction.response.send_message(f"🎯 Mission du jour : **{random.choice(missions)}**", ephemeral=True)
 
-    # /checkin
+    # -------------------------------
+    # Commande: /checkin
+    # Description: Permet d'exprimer son humeur avec un emoji.
+    # -------------------------------
     @app_commands.command(name="checkin", description="Exprime ton humeur avec un emoji.")
     @app_commands.describe(humeur="Ex: 😀, 😞, 😴, etc.")
     async def checkin(self, interaction: discord.Interaction, humeur: str):
         if not salon_est_autorise("checkin", interaction.channel_id):
             return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
-
         await interaction.response.send_message(f"📌 Humeur enregistrée : {humeur}", ephemeral=True)
-    @app_commands.command(name="cours_aide", description="Demande d'aide sur un cours via modal. Le message de demande est envoyé dans ce salon, et le rôle d'aide défini par admin est pingé dans le canal privé.")
+
+    # -------------------------------
+    # Commande: /cours_aide
+    # Description: Demande d'aide sur un cours via modal.
+    # -------------------------------
+    @app_commands.command(name="cours_aide", description="Demande d'aide sur un cours via modal.")
     async def cours_aide(self, interaction: discord.Interaction):
         if not salon_est_autorise("cours_aide", interaction.channel_id):
             return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
 
-        # Définition du modal pour recueillir la demande d'aide
+        # Définition du modal pour recueillir la demande d'aide sur un cours
         class CoursAideModal(discord.ui.Modal, title="Demande d'aide sur un cours"):
             cours = discord.ui.TextInput(
                 label="Cours concerné",
@@ -121,25 +135,25 @@ class UtilisateurCommands(commands.Cog):
                 if role_aide:
                     overwrites[role_aide] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
-                # Créer une catégorie privée dédiée à cette demande
+                # Créer une catégorie privée dédiée à cette demande d'aide
                 category = await guild.create_category(f"cours-aide-{user.name}".lower(), overwrites=overwrites)
                 # Créer automatiquement un salon textuel et un salon vocal dans cette catégorie
                 discussion_channel = await guild.create_text_channel("discussion", category=category)
                 await guild.create_voice_channel("support-voice", category=category)
                 # Dans le salon textuel, ping le rôle d'aide si défini
                 if role_aide:
-                    await discussion_channel.send(f"🔔 {role_aide.mention} une nouvelle demande d'aide a été créée par {user.mention} !")
+                    await discussion_channel.send(f"🔔 {role_aide.mention} une demande d'aide a été créée par {user.mention} !")
                     
-                # Préparer l'embed à envoyer dans le salon où la commande a été utilisée
+                # Préparer l'embed à envoyer dans le salon où la commande a été lancée
                 description = f"**Cours :** {self.cours.value}\n**Détails :** {self.details.value}"
                 embed = discord.Embed(title="Demande d'aide sur un cours", description=description, color=discord.Color.blue())
                 embed.set_footer(text=f"Demandée par {user.display_name}")
                 
-                # Créer la vue avec les deux boutons
+                # Créer la vue avec les boutons
                 view = CoursAideView(user, category, temp_role)
                 await modal_interaction.response.send_message(embed=embed, view=view)
 
-        # Définition de la vue avec boutons (à placer aussi dans ce même bloc)
+        # Définition de la vue avec boutons pour la commande /cours_aide
         class CoursAideView(discord.ui.View):
             def __init__(self, demandeur: discord.Member, category: discord.CategoryChannel, temp_role: discord.Role):
                 super().__init__(timeout=None)
@@ -149,7 +163,7 @@ class UtilisateurCommands(commands.Cog):
 
             @discord.ui.button(label="J'ai aussi ce problème", style=discord.ButtonStyle.primary, custom_id="btn_probleme")
             async def probleme_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-                # Ajouter le rôle temporaire à l'utilisateur s'il n'est pas déjà membre
+                # Ajouter le rôle temporaire à l'utilisateur s'il ne l'a pas déjà
                 if self.temp_role not in interaction.user.roles:
                     await interaction.user.add_roles(self.temp_role)
                     await interaction.response.send_message("✅ Vous avez rejoint cette demande d'aide.", ephemeral=True)
@@ -170,11 +184,8 @@ class UtilisateurCommands(commands.Cog):
                     return await interaction.response.send_message(f"❌ Erreur lors du retrait du rôle : {e}", ephemeral=True)
                 await interaction.response.send_message("✅ Demande supprimée ; la catégorie privée et le rôle temporaire ont été retirés.", ephemeral=True)
 
-        # Afficher le modal à l'utilisateur qui a lancé la commande
+        # Afficher le modal pour la commande /cours_aide
         await interaction.response.send_modal(CoursAideModal())
-    
-
-    
 
 async def setup_user_commands(bot):
     await bot.add_cog(UtilisateurCommands(bot))

@@ -28,17 +28,24 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # -------------------------------------------
-# 3) Quand le bot est prêt (Réinitialisation des commandes globales)
+# 3) Quand le bot est prêt (Synchronisation des commandes slash)
 # -------------------------------------------
 @bot.event
 async def on_ready():
     print(f"✅ Connecté en tant que {bot.user} (ID : {bot.user.id})")
     try:
-        # Efface toutes les commandes globales précédentes pour forcer la mise à jour
-        bot.tree.clear_commands(guild=None)
-        # Synchronisation globale des commandes slash
+        # Affiche la liste des commandes avant synchro pour le debug
+        initial_commands = bot.tree.get_commands()
+        print("DEBUG - Commandes détectées avant sync:", initial_commands)
+        
+        # Synchronisation globale des commandes slash (les anciennes commandes seront effacées)
         synced = await bot.tree.sync()
         print(f"✅ {len(synced)} commandes slash synchronisées globalement après réinitialisation.")
+        
+        # Affiche la liste des commandes après synchro pour vérification
+        updated_commands = bot.tree.get_commands()
+        print("DEBUG - Commandes après sync:", updated_commands)
+        
     except Exception as e:
         print(f"❌ Erreur de synchronisation des commandes slash : {e}")
 
@@ -46,13 +53,17 @@ async def on_ready():
 # 4) Chargement des Cogs (fichiers de commandes)
 # -------------------------------------------
 async def load_cogs():
+    print("DEBUG - Début du chargement des cogs")
     from commands.admin import setup_admin_commands
     from commands.utilisateur import setup_user_commands
     from commands.support import setup_support_commands
 
     await setup_admin_commands(bot)
+    print("DEBUG - AdminCommands chargé")
     await setup_user_commands(bot)
+    print("DEBUG - UtilisateurCommands chargé")
     await setup_support_commands(bot)
+    print("DEBUG - SupportCommands chargé")
     print("✅ Cogs chargés avec succès.")
 
 # -------------------------------------------
