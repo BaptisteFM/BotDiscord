@@ -1,109 +1,95 @@
+import discord
 import json
 import os
-import discord
 
-# Dossier persistant sur Render
-DISK_PATH = "/data"
+CONFIG_PATH = "data/config.json"
+REACTION_ROLE_PATH = "data/reaction_roles.json"
+SALONS_AUTORISES_PATH = "data/salons_autorises.json"
 
-# Fichiers de configuration
-CONFIG_PATH = os.path.join(DISK_PATH, "config.json")
-ROLES_PATH = os.path.join(DISK_PATH, "roles.json")
-RR_MAPPING_PATH = os.path.join(DISK_PATH, "reaction_role_mapping.json")
-
-# Initialisation des fichiers s'ils n'existent pas
-if not os.path.exists(DISK_PATH):
-    os.makedirs(DISK_PATH)
-
-if not os.path.exists(CONFIG_PATH):
-    with open(CONFIG_PATH, "w") as f:
-        json.dump({"salons_autorises": {}, "redirections": {}}, f, indent=4)
-
-if not os.path.exists(ROLES_PATH):
-    with open(ROLES_PATH, "w") as f:
-        json.dump({}, f, indent=4)
-
-if not os.path.exists(RR_MAPPING_PATH):
-    with open(RR_MAPPING_PATH, "w") as f:
-        json.dump({}, f, indent=4)
-
-# ------------------- CONFIGURATION GÉNÉRALE -------------------
-
+# ========== Chargement & Sauvegarde JSON ==========
 def charger_config():
-    with open(CONFIG_PATH, "r") as f:
+    if not os.path.exists(CONFIG_PATH):
+        return {}
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def sauvegarder_config(data):
-    with open(CONFIG_PATH, "w") as f:
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
-# ------------------- ADMIN -------------------
+# ========== Admin Check ==========
+async def is_admin(user: discord.User | discord.Member) -> bool:
+    return getattr(user, "guild_permissions", None) and user.guild_permissions.administrator
 
-async def is_admin(member: discord.Member) -> bool:
-    return member.guild_permissions.administrator
+# ========== Gestion des rôles ==========
+async def get_or_create_role(guild: discord.Guild, role_name: str) -> discord.Role:
+    role = discord.utils.get(guild.roles, name=role_name)
+    if role:
+        return role
+    try:
+        return await guild.create_role(name=role_name, reason="Création automatique via bot")
+    except Exception as e:
+        raise RuntimeError(f"Erreur lors de la création du rôle '{role_name}' : {e}")
 
-# ------------------- VÉRIFICATION DE SALON -------------------
+# ========== Gestion des catégories ==========
+async def get_or_create_category(guild: discord.Guild, category_name: str) -> discord.CategoryChannel:
+    existing = discord.utils.get(guild.categories, name=category_name)
+    if existing:
+        return existing
+    try:
+        return await guild.create_category(name=category_name)
+    except Exception as e:
+        raise RuntimeError(f"Erreur lors de la création de la catégorie '{category_name}' : {e}")
 
-async def salon_est_autorise(command_name: str, channel_id: int, member: discord.Member) -> bool:
-    if await is_admin(member):
-        return True  # Les admins peuvent tout exécuter partout
+# ========== Gestion des salons autorisés ==========
+def definir_salon_autorise(nom_commande: str, salon_id: int):
+    if not os.path.exists(SALONS_AUTORISES_PATH):
+        data = {}
+    else:
+        with open(SALONS_AUTORISES_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    data[nom_commande] = salon_id
+    with open(SALONS_AUTORISES_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+
+def salon_est_autorise(nom_commande: str, channel_id: int, user: discord.User | discord.Member = None):
+    if os.path.exists(SALONS_AUTORISES_PATH):
+        with open(SALONS_AUTORISES_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        salon_autorise = data.get(nom_commande)
+        if salon_autorise is None:
+            return True
+        if int(channel_id) == int(salon_autorise):
+            return True
+        if user and getattr(user, "guild_permissions", None) and user.guild_permissions.administrator:
+            return "admin_override"
+        return False
+    return True
+
+# ========== Gestion des redirections ==========
+def definir_redirection(redirection_type: str, salon_id: int):
     config = charger_config()
-    salons_autorises = config.get("salons_autorises", {})
-    salon_id_autorise = salons_autorises.get(command_name)
-    return str(channel_id) == str(salon_id_autorise)
-
-def definir_salon_autorise(command_name: str, channel_id: int):
-    config = charger_config()
-    if "salons_autorises" not in config:
-        config["salons_autorises"] = {}
-    config["salons_autorises"][command_name] = str(channel_id)
+    config["redirections"] = config.get("redirections", {})
+    config["redirections"][redirection_type] = str(salon_id)
     sauvegarder_config(config)
 
-# ------------------- CONFIG PERSONNALISÉE -------------------
-
-def definir_option_config(option: str, value: str):
-    config = charger_config()
-    config[option] = value
-    sauvegarder_config(config)
-
-def definir_redirection(redirection_type: str, channel_id: int):
-    config = charger_config()
-    if "redirections" not in config:
-        config["redirections"] = {}
-    config["redirections"][redirection_type] = str(channel_id)
-    sauvegarder_config(config)
-
-def get_redirection(redirection_type: str) -> str:
+def get_redirection(redirection_type: str) -> str | None:
     config = charger_config()
     return config.get("redirections", {}).get(redirection_type)
 
-# ------------------- ROLES & CATÉGORIES -------------------
+# ========== Gestion des options diverses ==========
+def definir_option_config(option: str, valeur: str):
+    config = charger_config()
+    config[option] = valeur
+    sauvegarder_config(config)
 
-def enregistrer_role(role_id: int, role_name: str):
-    with open(ROLES_PATH, "r") as f:
-        data = json.load(f)
-    data[str(role_id)] = role_name
-    with open(ROLES_PATH, "w") as f:
-        json.dump(data, f, indent=4)
-
-async def get_or_create_role(guild: discord.Guild, role_name: str) -> discord.Role:
-    role = discord.utils.get(guild.roles, name=role_name)
-    if role is None:
-        role = await guild.create_role(name=role_name)
-        enregistrer_role(role.id, role.name)
-    return role
-
-async def get_or_create_category(guild: discord.Guild, category_name: str) -> discord.CategoryChannel:
-    category = discord.utils.get(guild.categories, name=category_name)
-    if category is None:
-        category = await guild.create_category(category_name)
-    return category
-
-# ------------------- RÉACTIONS & ROLES -------------------
-
-def load_reaction_role_mapping():
-    with open(RR_MAPPING_PATH, "r") as f:
+# ========== Gestion Reaction Roles persistants ==========
+def load_reaction_role_mapping() -> dict:
+    if not os.path.exists(REACTION_ROLE_PATH):
+        return {}
+    with open(REACTION_ROLE_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def save_reaction_role_mapping(mapping):
-    with open(RR_MAPPING_PATH, "w") as f:
-        json.dump(mapping, f, indent=4)
+def save_reaction_role_mapping(data: dict):
+    with open(REACTION_ROLE_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
