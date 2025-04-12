@@ -93,3 +93,22 @@ def load_reaction_role_mapping() -> dict:
 def save_reaction_role_mapping(data: dict):
     with open(REACTION_ROLE_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
+
+# ========== Logs d’erreurs dans un salon Discord ==========
+
+async def log_erreur(bot: discord.Client, guild: discord.Guild, message: str):
+    try:
+        config = charger_config()
+        log_channel_id = config.get("log_erreurs_channel")
+        if not log_channel_id:
+            return  # Aucun salon défini
+
+        log_channel = guild.get_channel(int(log_channel_id))
+        if not log_channel:
+            return
+
+        embed = discord.Embed(title="❌ Erreur détectée", description=message, color=discord.Color.red())
+        await log_channel.send(embed=embed)
+    except Exception:
+        pass  # Ne rien faire si même la fonction de log échoue
+
