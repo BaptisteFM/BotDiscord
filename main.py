@@ -4,9 +4,9 @@ import asyncio
 import os
 from dotenv import load_dotenv
 
-# 1) Crée le dossier /DISK pour la persistance
-if not os.path.exists("/DISK"):
-    os.makedirs("/DISK")
+# 1) Crée le dossier /data pour la persistance
+if not os.path.exists("/data"):
+    os.makedirs("/data")
 
 # 2) Charge les variables d'environnement
 load_dotenv()

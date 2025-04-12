@@ -81,6 +81,98 @@ class UtilisateurCommands(commands.Cog):
             return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
 
         await interaction.response.send_message(f"📌 Humeur enregistrée : {humeur}", ephemeral=True)
+    @app_commands.command(name="cours_aide", description="Demande d'aide sur un cours via modal. Le message de demande est envoyé dans ce salon, et le rôle d'aide défini par admin est pingé dans le canal privé.")
+    async def cours_aide(self, interaction: discord.Interaction):
+        if not salon_est_autorise("cours_aide", interaction.channel_id):
+            return await interaction.response.send_message("❌ Commande non autorisée dans ce salon.", ephemeral=True)
+
+        # Définition du modal pour recueillir la demande d'aide
+        class CoursAideModal(discord.ui.Modal, title="Demande d'aide sur un cours"):
+            cours = discord.ui.TextInput(
+                label="Cours concerné",
+                placeholder="Ex : Mathématiques, Physique, etc.",
+                required=True
+            )
+            details = discord.ui.TextInput(
+                label="Détaillez votre problème",
+                style=discord.TextStyle.paragraph,
+                placeholder="Expliquez précisément ce que vous n'avez pas compris.",
+                required=True
+            )
+            async def on_submit(modal_interaction: discord.Interaction):
+                user = modal_interaction.user
+                guild = modal_interaction.guild
+
+                # Créer un rôle temporaire pour le demandeur et l'ajouter
+                temp_role = await get_or_create_role(guild, f"CoursAide-{user.name}")
+                await user.add_roles(temp_role)
+
+                # Récupérer le rôle d'aide défini par admin via la config (option "role_aide")
+                from utils.utils import charger_config
+                config = charger_config()
+                role_aide_id = config.get("role_aide")  # L'admin doit configurer cette option
+                role_aide = guild.get_role(int(role_aide_id)) if role_aide_id else None
+
+                # Définir les permissions : accès autorisé pour le rôle temporaire et, si défini, le rôle d'aide
+                overwrites = {
+                    guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                    temp_role: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+                }
+                if role_aide:
+                    overwrites[role_aide] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+                # Créer une catégorie privée dédiée à cette demande
+                category = await guild.create_category(f"cours-aide-{user.name}".lower(), overwrites=overwrites)
+                # Créer automatiquement un salon textuel et un salon vocal dans cette catégorie
+                discussion_channel = await guild.create_text_channel("discussion", category=category)
+                await guild.create_voice_channel("support-voice", category=category)
+                # Dans le salon textuel, ping le rôle d'aide si défini
+                if role_aide:
+                    await discussion_channel.send(f"🔔 {role_aide.mention} une nouvelle demande d'aide a été créée par {user.mention} !")
+                    
+                # Préparer l'embed à envoyer dans le salon où la commande a été utilisée
+                description = f"**Cours :** {self.cours.value}\n**Détails :** {self.details.value}"
+                embed = discord.Embed(title="Demande d'aide sur un cours", description=description, color=discord.Color.blue())
+                embed.set_footer(text=f"Demandée par {user.display_name}")
+                
+                # Créer la vue avec les deux boutons
+                view = CoursAideView(user, category, temp_role)
+                await modal_interaction.response.send_message(embed=embed, view=view)
+
+        # Définition de la vue avec boutons (à placer aussi dans ce même bloc)
+        class CoursAideView(discord.ui.View):
+            def __init__(self, demandeur: discord.Member, category: discord.CategoryChannel, temp_role: discord.Role):
+                super().__init__(timeout=None)
+                self.demandeur = demandeur
+                self.category = category
+                self.temp_role = temp_role
+
+            @discord.ui.button(label="J'ai aussi ce problème", style=discord.ButtonStyle.primary, custom_id="btn_probleme")
+            async def probleme_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+                # Ajouter le rôle temporaire à l'utilisateur s'il n'est pas déjà membre
+                if self.temp_role not in interaction.user.roles:
+                    await interaction.user.add_roles(self.temp_role)
+                    await interaction.response.send_message("✅ Vous avez rejoint cette demande d'aide.", ephemeral=True)
+                else:
+                    await interaction.response.send_message("ℹ️ Vous êtes déjà associé à cette demande.", ephemeral=True)
+
+            @discord.ui.button(label="Supprimer la demande", style=discord.ButtonStyle.danger, custom_id="btn_supprimer")
+            async def supprimer_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+                if interaction.user != self.demandeur:
+                    return await interaction.response.send_message("❌ Seul le demandeur peut supprimer cette demande.", ephemeral=True)
+                try:
+                    await self.category.delete()
+                except Exception as e:
+                    return await interaction.response.send_message(f"❌ Erreur lors de la suppression de la catégorie : {e}", ephemeral=True)
+                try:
+                    await self.demandeur.remove_roles(self.temp_role)
+                except Exception as e:
+                    return await interaction.response.send_message(f"❌ Erreur lors du retrait du rôle : {e}", ephemeral=True)
+                await interaction.response.send_message("✅ Demande supprimée ; la catégorie privée et le rôle temporaire ont été retirés.", ephemeral=True)
+
+        # Afficher le modal à l'utilisateur qui a lancé la commande
+        await interaction.response.send_modal(CoursAideModal())
+    
 
     
 
