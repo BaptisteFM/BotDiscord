@@ -34,6 +34,9 @@ def _sauvegarder_demandes(data):
 class Whitelist(commands.Cog, name="whitelist"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        # boucle de polling réaction toutes les 15s
+        self.check_reactions.start()
+        # boucle de rappel demande toutes les heures
         self.rappel_demande.start()
 
     # — Helpers JSON —
@@ -83,92 +86,109 @@ class Whitelist(commands.Cog, name="whitelist"):
 
         cfg = charger_config()
         cfg["demande_acces_channel_id"] = str(interaction.channel.id)
-        cfg["demande_acces_message_id"] = str(msg.id)
+        cfg["demande_acces_message_id"]   = str(msg.id)
         sauvegarder_config(cfg)
 
         await interaction.response.send_message("✅ Message d'accès publié.", ephemeral=True)
 
-    # — Événement : détection de la réaction ✅ —
-    @commands.Cog.listener()
-    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        # ignore bot's own
-        if payload.user_id == self.bot.user.id:
-            return
-
-        cfg = charger_config()
-        chan_id = int(cfg.get("demande_acces_channel_id", 0))
-        msg_id  = int(cfg.get("demande_acces_message_id", 0))
-        # pas le bon message / pas la bonne réaction
-        if payload.channel_id != chan_id or payload.message_id != msg_id or str(payload.emoji) != "✅":
-            return
-
-        guild = self.bot.get_guild(payload.guild_id)
-        if not guild:
-            return
-        member = guild.get_member(payload.user_id)
-        if not member or not await is_non_verified_user(member):
-            return
-
-        # retirer la réaction pour que ça ne spamme pas
+    # — Polling : vérifier les réactions régulièrement —
+    @tasks.loop(seconds=15)
+    async def check_reactions(self):
         try:
-            channel = self.bot.get_channel(payload.channel_id)
-            message = await channel.fetch_message(payload.message_id)
-            await message.remove_reaction("✅", member)
-        except:
-            pass
+            cfg = charger_config()
+            chan_id = int(cfg.get("demande_acces_channel_id", 0))
+            msg_id  = int(cfg.get("demande_acces_message_id", 0))
+            if not chan_id or not msg_id:
+                return
 
-        # DM pour nom / prénom
-        try:
-            dm = await member.create_dm()
-            await dm.send("📝 **Demande d'accès**\nQuel est votre **nom** ?")
-            def check_name(m: discord.Message):
-                return m.author.id == payload.user_id and isinstance(m.channel, discord.DMChannel)
-            name_msg = await self.bot.wait_for('message', check=check_name, timeout=300)
+            channel = self.bot.get_channel(chan_id)
+            if not channel:
+                return
+            message = await channel.fetch_message(msg_id)
 
-            await dm.send("📝 Merci ! Quel est votre **prénom** ?")
-            def check_prenom(m: discord.Message):
-                return m.author.id == payload.user_id and isinstance(m.channel, discord.DMChannel)
-            prenom_msg = await self.bot.wait_for('message', check=check_prenom, timeout=300)
+            # repérer la réaction ✅
+            reaction = discord.utils.get(message.reactions, emoji="✅")
+            if not reaction or reaction.count < 1:
+                return
 
-            # enregistrement
-            await self.ajouter_demande(
-                user_id=payload.user_id,
-                timestamp=datetime.utcnow().isoformat(),
-                nom=name_msg.content.strip(),
-                prenom=prenom_msg.content.strip()
-            )
-            await dm.send("✅ Votre demande a été transmise aux modérateurs.")
+            users = await reaction.users().flatten()
+            for user in users:
+                if user.id == self.bot.user.id:
+                    continue
+                if not await is_non_verified_user(user):
+                    continue
 
-            # notifier staff
-            embed = discord.Embed(
-                title="📨 Nouvelle demande d'accès",
-                description=(
-                    f"<@{payload.user_id}> a demandé à rejoindre le serveur.\n"
-                    f"**Nom** : {name_msg.content}\n"
-                    f"**Prénom** : {prenom_msg.content}"
-                ),
-                color=discord.Color.blurple()
-            )
-            embed.set_footer(text=f"ID utilisateur : {payload.user_id}")
-            val_chan_id = cfg.get("journal_validation_channel")
-            if val_chan_id:
-                val_chan = guild.get_channel(int(val_chan_id))
-                if val_chan:
-                    view = ValidationButtons(self.bot, payload.user_id,
-                                             name_msg.content, prenom_msg.content)
-                    await val_chan.send(embed=embed, view=view)
+                # éviter re-traiter la même demande : voir dans demands.json
+                demandes = await self.charger_demandes()
+                if any(d["user_id"] == str(user.id) for d in demandes):
+                    # supprimer quand même la réaction
+                    try: await message.remove_reaction("✅", user)
+                    except: pass
+                    continue
 
-        except asyncio.TimeoutError:
-            try:
-                await member.send("⌛ Temps écoulé. Réagissez à nouveau pour recommencer.")
-            except:
-                pass
+                # on supprime la réaction pour éviter le spam
+                try:
+                    await message.remove_reaction("✅", user)
+                except:
+                    pass
+
+                # DM pour nom / prénom
+                try:
+                    dm = await user.create_dm()
+                    await dm.send("📝 **Demande d'accès**\nQuel est votre **nom** ?")
+                    def check_name(m: discord.Message):
+                        return m.author.id == user.id and isinstance(m.channel, discord.DMChannel)
+                    name_msg = await self.bot.wait_for('message', check=check_name, timeout=300)
+
+                    await dm.send("📝 Merci ! Quel est votre **prénom** ?")
+                    def check_prenom(m: discord.Message):
+                        return m.author.id == user.id and isinstance(m.channel, discord.DMChannel)
+                    prenom_msg = await self.bot.wait_for('message', check=check_prenom, timeout=300)
+
+                    # enregistrement de la demande
+                    await self.ajouter_demande(
+                        user_id=user.id,
+                        timestamp=datetime.utcnow().isoformat(),
+                        nom=name_msg.content.strip(),
+                        prenom=prenom_msg.content.strip()
+                    )
+                    await dm.send("✅ Votre demande a été transmise aux modérateurs.")
+
+                    # notification staff
+                    embed = discord.Embed(
+                        title="📨 Nouvelle demande d'accès",
+                        description=(
+                            f"<@{user.id}> a demandé à rejoindre le serveur.\n"
+                            f"**Nom** : {name_msg.content}\n"
+                            f"**Prénom** : {prenom_msg.content}"
+                        ),
+                        color=discord.Color.blurple()
+                    )
+                    embed.set_footer(text=f"ID utilisateur : {user.id}")
+                    val_chan_id = cfg.get("journal_validation_channel")
+                    if val_chan_id:
+                        val_chan = channel.guild.get_channel(int(val_chan_id))
+                        if val_chan:
+                            view = ValidationButtons(self.bot, user.id,
+                                                     name_msg.content,
+                                                     prenom_msg.content)
+                            await val_chan.send(embed=embed, view=view)
+
+                except asyncio.TimeoutError:
+                    try:
+                        await user.send("⌛ Temps écoulé. Réagissez à nouveau pour recommencer.")
+                    except:
+                        pass
+                except Exception as e:
+                    await log_erreur(self.bot, channel.guild, f"check_reactions: {e}")
+                    try:
+                        await user.send("❌ Une erreur est survenue. Réessayez plus tard.")
+                    except:
+                        pass
+
         except Exception as e:
-            await log_erreur(self.bot, guild, f"on_raw_reaction_add: {e}")
-            try:
-                await member.send("❌ Une erreur est survenue. Réessayez plus tard.")
-            except:
-                pass
+            # log erreur globale du polling
+            await log_erreur(self.bot, None, f"check_reactions outer: {e}")
 
     # — Boucle de rappel (toutes les heures) —
     @tasks.loop(minutes=60)
@@ -187,7 +207,7 @@ class Whitelist(commands.Cog, name="whitelist"):
         except Exception as e:
             await log_erreur(self.bot, None, f"rappel_demande: {e}")
 
-    # — Commandes admin restants ————————————————————————————————
+    # — Commandes admin restantes —
     @app_commands.command(
         name="definir_journal_validation",
         description="Définit le salon de réception des demandes."
@@ -264,12 +284,12 @@ class Whitelist(commands.Cog, name="whitelist"):
             approved.remove(found)
             await interaction.client.loop.run_in_executor(None, sauvegarder_whitelist, approved)
         # rôles quoi qu'il arrive
-        r_m = discord.utils.get(interaction.guild.roles, name="Membre")
-        r_nv = discord.utils.get(interaction.guild.roles, name="Non vérifié")
-        if r_m in utilisateur.roles:
-            await utilisateur.remove_roles(r_m)
-        if r_nv not in utilisateur.roles:
-            await utilisateur.add_roles(r_nv)
+        rm = discord.utils.get(interaction.guild.roles, name="Membre")
+        rnv = discord.utils.get(interaction.guild.roles, name="Non vérifié")
+        if rm in utilisateur.roles:
+            await utilisateur.remove_roles(rm)
+        if rnv not in utilisateur.roles:
+            await utilisateur.add_roles(rnv)
         msg = (
             f"✅ {utilisateur.mention} retiré de la whitelist et statut réinitialisé."
             if found else
@@ -277,9 +297,9 @@ class Whitelist(commands.Cog, name="whitelist"):
         )
         await interaction.response.send_message(msg, ephemeral=True)
 
-# — ValidationButtons pour le staff —
+# — ValidationButtons inchangée pour le staff —
 class ValidationButtons(discord.ui.View):
-    def __init__(self, bot: commands.Bot, user_id: int, nom: str, prenom: str):
+    def __init__(self, bot, user_id, nom, prenom):
         super().__init__(timeout=None)
         self.bot, self.user_id, self.nom, self.prenom = bot, user_id, nom, prenom
 
