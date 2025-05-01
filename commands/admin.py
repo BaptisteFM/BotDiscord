@@ -507,5 +507,29 @@ class AdminCommands(commands.Cog):
                 await interaction.response.send_message("❌ Erreur lors de la validation.", ephemeral=True)
                 await log_erreur(interaction.client, interaction.guild, f"forcer_validation: {e}")
 
+
+        # ───── Définir le salon de redirection pour la commande /proposer_sortie ─────
+    @app_commands.command(name="definir_salon_sortie", description="Définit le salon où sont envoyées les propositions de sorties.")
+    @app_commands.default_permissions(administrator=True)
+    async def definir_salon_sortie(self, interaction: discord.Interaction, salon: discord.TextChannel):
+        if not await is_admin(interaction.user):
+            return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+        config = charger_config()
+        config["sortie_channel"] = str(salon.id)
+        sauvegarder_config(config)
+        await interaction.response.send_message(f"✅ Salon des sorties défini : {salon.mention}", ephemeral=True)
+
+    # ───── Définir le rôle à ping pour la commande /proposer_sortie ─────
+    @app_commands.command(name="definir_role_sortie", description="Définit le rôle qui sera ping pour les propositions de sorties.")
+    @app_commands.default_permissions(administrator=True)
+    async def definir_role_sortie(self, interaction: discord.Interaction, role: discord.Role):
+        if not await is_admin(interaction.user):
+            return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+        config = charger_config()
+        config["role_sortie"] = str(role.id)
+        sauvegarder_config(config)
+        await interaction.response.send_message(f"✅ Rôle pour les sorties défini : {role.mention}", ephemeral=True)
+
+
 async def setup_admin_commands(bot: commands.Bot):
     await bot.add_cog(AdminCommands(bot))

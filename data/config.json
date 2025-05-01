@@ -1,4 +1,9 @@
 {
     "log_erreurs_channel": "1360564121430524034",
-    "role_aide": "1360506001853513769"
+    "role_aide": "1360506001853513769",
+    "salon_besoin_d_en_parler": "1361032380717994034",
+    "role_besoin_d_en_parler": "1361032568916676608",
+    "role_acces_utilisateur": "1360633230877003906",
+    "sortie_channel": "1361048145936781393",
+    "role_sortie": "1361053761925025955"
 }

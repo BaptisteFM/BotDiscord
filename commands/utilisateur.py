@@ -232,6 +232,7 @@ class CoursAideView(discord.ui.View):
             await interaction.followup.send("✅ Votre espace d'aide a été fermé avec succès.", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"❌ Erreur lors de la suppression : {e}", ephemeral=True)
+    
 
 async def setup_user_commands(bot):
     await bot.add_cog(UtilisateurCommands(bot))

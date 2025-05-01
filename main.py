@@ -67,6 +67,7 @@ async def load_cogs():
         from commands.test_command import setup as setup_test
         from commands.events import setup as setup_events
         from commands import whitelist
+        from commands import loisir
 
         await setup_test(bot)
         await setup_admin_commands(bot)
@@ -83,6 +84,10 @@ async def load_cogs():
 
         await whitelist.setup(bot)
         print("✅ Whitelist chargé")
+
+        await loisir.setup(bot)
+        print("✅ LoisirCommands chargé")
+
 
     except Exception as e:
         print(f"❌ Erreur lors du chargement des Cogs : {e}")
