@@ -99,16 +99,6 @@ class UtilisateurCommands(commands.Cog):
         except Exception as e:
             await log_erreur(self.bot, interaction.guild, f"Erreur dans /mission_du_jour : {e}")
 
-    @app_commands.command(name="checkin", description="Exprime ton humeur avec un emoji.")
-    @app_commands.describe(humeur="Ex: 😀, 😞, 😴, etc.")
-    @app_commands.check(check_verified)
-    async def checkin(self, interaction: discord.Interaction, humeur: str):
-        if not await self.check_salon(interaction, "checkin"):
-            return
-        try:
-            await interaction.response.send_message(f"📌 Humeur enregistrée : {humeur}", ephemeral=True)
-        except Exception as e:
-            await log_erreur(self.bot, interaction.guild, f"Erreur dans /checkin : {e}")
 
     @app_commands.command(name="cours_aide", description="Demande d'aide sur un cours via modal.")
     @app_commands.check(check_verified)

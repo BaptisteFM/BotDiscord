@@ -69,6 +69,7 @@ async def load_cogs():
         from commands import whitelist
         from commands import loisir
         from commands import missions
+        from commands import checkin
 
         await setup_test(bot)
         await setup_admin_commands(bot)
@@ -91,6 +92,9 @@ async def load_cogs():
 
         await missions.setup(bot)
         print ("✅ missions chargé")
+
+        await checkin.setup(bot)
+        print ("✅ checkin chargé")
 
 
     except Exception as e:
