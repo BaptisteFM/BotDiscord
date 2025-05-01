@@ -92,7 +92,7 @@ class DemandeAccesButtonView(discord.ui.View):
                 "🛑 Vous êtes déjà vérifié(e) ou n'avez pas la permission de faire cette demande.",
                 ephemeral=True
             )
-        # Ouvre le même modal
+        # Ouvre le même modal que précédemment
         await interaction.response.send_modal(DemandeAccesModal(self.bot, interaction.user.id))
 
 class Whitelist(commands.Cog, name="whitelist"):
@@ -236,9 +236,11 @@ class Whitelist(commands.Cog, name="whitelist"):
             or query.lower() in entry.get("prenom", "").lower()
         ]
         if not matches:
-            return await interaction.response.send_message(f"❌ Aucun résultat pour '{query}'.", ephemeral=True)
+            await interaction.response.send_message(f"❌ Aucun résultat pour '{query}'.", ephemeral=True)
+            return
         result_text = "\n".join(
-            f"ID: {entry.get('user_id')}, Nom: {entry.get('nom')}, Prénom: {entry.get('prenom')}, Validé le: {entry.get('validated')}"
+            f"ID: {entry.get('user_id')}, Nom: {entry.get('nom')}, "
+            f"Prénom: {entry.get('prenom')}, Validé le: {entry.get('validated')}"
             for entry in matches
         )
         embed = discord.Embed(
@@ -254,11 +256,8 @@ class Whitelist(commands.Cog, name="whitelist"):
     )
     @app_commands.default_permissions(administrator=True)
     async def retirer_whitelist(self, interaction: discord.Interaction, utilisateur: discord.Member):
-        # Vérifier les permissions
         if not await is_admin(interaction.user):
             return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
-
-        # Charger et (eventuellement) supprimer l'entrée
         from utils.utils import charger_whitelist, sauvegarder_whitelist
         approved = await interaction.client.loop.run_in_executor(None, charger_whitelist)
         found_entry = next(
@@ -268,21 +267,18 @@ class Whitelist(commands.Cog, name="whitelist"):
         if found_entry:
             approved.remove(found_entry)
             await interaction.client.loop.run_in_executor(None, sauvegarder_whitelist, approved)
-
-        # --- Mise à jour DES RÔLES, quoi qu'il arrive ---
-        role_membre = discord.utils.get(interaction.guild.roles, name="Membre")
-        role_non_verifie = discord.utils.get(interaction.guild.roles, name="Non vérifié")
-        if role_membre and role_membre in utilisateur.roles:
-            await utilisateur.remove_roles(role_membre)
-        if role_non_verifie and role_non_verifie not in utilisateur.roles:
-            await utilisateur.add_roles(role_non_verifie)
-
-        # Réponse adaptée
-        if found_entry:
-            msg = f"✅ {utilisateur.mention} a été retiré de la whitelist et son statut a été réinitialisé."
+            role_membre = discord.utils.get(interaction.guild.roles, name="Membre")
+            role_non_verifie = discord.utils.get(interaction.guild.roles, name="Non vérifié")
+            if role_membre and role_membre in utilisateur.roles:
+                await utilisateur.remove_roles(role_membre)
+            if role_non_verifie and role_non_verifie not in utilisateur.roles:
+                await utilisateur.add_roles(role_non_verifie)
+            await interaction.response.send_message(
+                f"✅ {utilisateur.mention} a été retiré de la whitelist et son statut a été réinitialisé.",
+                ephemeral=True
+            )
         else:
-            msg = f"ℹ️ {utilisateur.mention} n'était pas dans la whitelist, mais son statut a néanmoins été réinitialisé."
-        await interaction.response.send_message(msg, ephemeral=True)
+            await interaction.response.send_message("ℹ️ Cet utilisateur n'est pas dans la whitelist.", ephemeral=True)
 
 class ValidationButtons(discord.ui.View):
     def __init__(self, bot, user_id, nom, prenom):
