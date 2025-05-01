@@ -52,14 +52,12 @@ async def save_whitelist(data):
         await asyncio.get_event_loop().run_in_executor(None, _save_json, WL_PATH, data)
 
 # Envoi de DM protégé
-async def safe_send_dm(user: discord.User, content: str):
+def safe_send_dm(user: discord.User, content: str):
     try:
-        dm = user.dm_channel or await user.create_dm()
-        return await dm.send(content)
+        return user.send(content)
     except Exception as e:
         # logger pour Render
-        await log_erreur(None, None, f"safe_send_dm vers {user.id} a échoué : {e}")
-        return None
+        return log_erreur(None, None, f"safe_send_dm vers {user.id} a échoué : {e}")
 
 # --- Modal de demande d'accès ---
 class DemandeAccesModal(discord.ui.Modal, title="Demande d'accès au serveur"):
@@ -85,23 +83,29 @@ class DemandeAccesModal(discord.ui.Modal, title="Demande d'accès au serveur"):
         embed = discord.Embed(
             title="📨 Nouvelle demande d'accès",
             description=(
-                f"{user.mention} souhaite rejoindre.\n"
                 f"**Prénom** : {self.prenom.value}\n"
                 f"**Nom**    : {self.nom.value}"
             ),
             color=discord.Color.blurple()
         ).set_footer(text=f"ID : {user.id}")
+        mention = ''
+        admin_role = cfg.get('role_admin_id')
+        staff_role = cfg.get('role_staff_id')
+        if admin_role:
+            mention += f"<@&{admin_role}> "
+        if staff_role:
+            mention += f"<@&{staff_role}>"
         if vid and guild:
             target = guild.get_channel(int(vid))
             if target:
                 view = ValidationView(self.bot, user.id, self.prenom.value, self.nom.value)
-                await target.send(embed=embed, view=view)
+                await target.send(content=mention, embed=embed, view=view)
             else:
                 await safe_send_dm(user, "⚠️ Salon de validation non trouvé.")
         else:
-            await safe_send_dm(user, "⚠️ Aucun salon de validation configuré.")
+            await safe_send_dm(user, "⚠️ Aucune configuration salon validation.")
 
-        await interaction.response.send_message("✅ Ta demande a bien été envoyée aux modérateurs.", ephemeral=True)
+        await interaction.response.send_message("✅ Ta demande a été envoyée aux modérateurs.", ephemeral=True)
 
 # --- Vue pour publier le bouton de demande d'accès ---
 class RequestAccessView(discord.ui.View):
@@ -124,147 +128,143 @@ class ValidationView(discord.ui.View):
 
     async def _get_roles(self, guild: discord.Guild):
         cfg = charger_config()
-        # IDs en config ou noms par défaut
-        rid_nv = cfg.get("role_non_verifie_id")
-        rid_m  = cfg.get("role_membre_id")
-        role_nv = guild.get_role(int(rid_nv)) if rid_nv else discord.utils.get(guild.roles, name="Non vérifié")
-        role_m  = guild.get_role(int(rid_m))  if rid_m  else discord.utils.get(guild.roles, name="Membre")
+        role_nv = guild.get_role(int(cfg.get("role_non_verifie_id"))) if cfg.get("role_non_verifie_id") else discord.utils.get(guild.roles, name="Non vérifié")
+        role_m  = guild.get_role(int(cfg.get("role_membre_id")))      if cfg.get("role_membre_id")      else discord.utils.get(guild.roles, name="Membre")
         return role_nv, role_m
 
     @discord.ui.button(label="✅ Accepter", style=discord.ButtonStyle.success)
     async def accepter(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
         guild = interaction.guild
         member = guild.get_member(self.user_id)
         if not member:
             return await interaction.followup.send("❌ Utilisateur introuvable.", ephemeral=True)
-        # Récupération des rôles
         role_nv, role_m = await self._get_roles(guild)
-        # Assignation
         if role_nv and role_nv in member.roles:
             await member.remove_roles(role_nv)
         if role_m and role_m not in member.roles:
             await member.add_roles(role_m)
         # DM de bienvenue
         cfg = charger_config()
-        msg_val = cfg.get("message_validation", "🎉 Bienvenue sur le serveur !")
+        msg_val = cfg.get("message_validation", "🎉 Bienvenue !")
         await safe_send_dm(member, msg_val)
-        # Ajout à la whitelist
+        # Whitelist save
         wl = await load_whitelist()
         if not any(e.get("user_id") == member.id for e in wl):
-            wl.append({
-                "user_id": member.id,
-                "prenom": self.prenom,
-                "nom": self.nom,
-                "validated": datetime.utcnow().isoformat()
-            })
+            wl.append({"user_id": member.id, "prenom": self.prenom, "nom": self.nom, "validated": datetime.utcnow().isoformat()})
             await save_whitelist(wl)
-        # Suppression de la demande
+        # Remove demande
         demandes = await load_demandes()
         demandes = [d for d in demandes if d.get("user_id") != member.id]
         await save_demandes(demandes)
-        await interaction.followup.send("✅ Utilisateur accepté et notifié.", ephemeral=True)
+        # Edit message: embed + disable buttons
+        msg = interaction.message
+        embed = msg.embeds[0]
+        embed.color = discord.Color.green()
+        embed.add_field(name="Statut", value=f"✅ Accepté par {interaction.user.mention}", inline=False)
+        for child in self.children:
+            child.disabled = True
+        await msg.edit(content=msg.content, embed=embed, view=self)
+        await interaction.followup.send("✅ Action enregistrée.", ephemeral=True)
 
     @discord.ui.button(label="❌ Refuser", style=discord.ButtonStyle.danger)
     async def refuser(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
         # DM de refus
         user = self.bot.get_user(self.user_id)
         if user:
-            await safe_send_dm(user, "❌ Ta demande a été refusée. Contacte un modérateur si besoin.")
-        # Suppression de la demande
+            await safe_send_dm(user, "❌ Ta demande a été refusée.")
+        # Remove demande
         demandes = await load_demandes()
         demandes = [d for d in demandes if d.get("user_id") != self.user_id]
         await save_demandes(demandes)
-        await interaction.followup.send("⛔ Utilisateur refusé.", ephemeral=True)
+        # Edit message
+        msg = interaction.message
+        embed = msg.embeds[0]
+        embed.color = discord.Color.red()
+        embed.add_field(name="Statut", value=f"❌ Refusé par {interaction.user.mention}", inline=False)
+        for child in self.children:
+            child.disabled = True
+        await msg.edit(content=msg.content, embed=embed, view=self)
+        await interaction.followup.send("⛔ Action enregistrée.", ephemeral=True)
 
 # --- Cog principal ---
 class Whitelist(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # Enregistrer la vue persistante pour le bouton
         self.bot.add_view(RequestAccessView(bot))
         self.reminder_loop.start()
 
     def cog_unload(self):
         self.reminder_loop.cancel()
 
-    # Admin : publier le message de demande d'accès
-    @app_commands.command(name="publier_demande_acces", description="Publier le bouton de demande d'accès au serveur")
+    # Publier bouton
+    @app_commands.command(name="publier_demande_acces", description="Publier le bouton de demande d'accès")
     @app_commands.default_permissions(administrator=True)
     async def publier_demande_acces(self, interaction: discord.Interaction, salon: discord.TextChannel):
         if not await is_admin(interaction.user):
             return await interaction.response.send_message("❌ Réservé aux admins.", ephemeral=True)
-        embed = discord.Embed(
-            title="Demande d'accès",
-            description="Clique sur le bouton ci-dessous pour demander l'accès au serveur.",
-            color=discord.Color.blurple()
-        )
+        embed = discord.Embed(title="Demande d'accès", description="Clique sur le bouton ci-dessous pour faire ta demande.", color=discord.Color.blurple())
         await salon.send(embed=embed, view=RequestAccessView(self.bot))
-        await interaction.response.send_message(f"✅ Message publié dans {salon.mention}.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Bouton publié dans {salon.mention}.", ephemeral=True)
 
-    # Slash pour demander l'accès (fallback)
-    @app_commands.command(name="demande_acces", description="Ouvre le formulaire de demande d'accès")
-    async def commande_demande_acces(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(DemandeAccesModal(self.bot))
-
-    # Admin : définir salon validation
-    @app_commands.command(name="definir_salon_validation", description="Définir le salon de validation")
+    # Définir salon validation
+    @app_commands.command(name="definir_salon_validation", description="Définir salon validation")
     @app_commands.default_permissions(administrator=True)
     async def definir_salon_validation(self, interaction: discord.Interaction, salon: discord.TextChannel):
         if not await is_admin(interaction.user):
-            return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+            return await interaction.response.send_message("❌ Réservé aux admins.", ephemeral=True)
         cfg = charger_config()
         cfg["journal_validation_channel"] = str(salon.id)
         sauvegarder_config(cfg)
-        await interaction.response.send_message(f"✅ Salon de validation défini : {salon.mention}", ephemeral=True)
+        await interaction.response.send_message(f"✅ Salon validation : {salon.mention}.", ephemeral=True)
 
-    # Admin : définir salon rappel
-    @app_commands.command(name="definir_salon_rappel", description="Définir le salon pour rappels de demandes")
+    # Définir salon rappel
+    @app_commands.command(name="definir_salon_rappel", description="Définir salon rappel")
     @app_commands.default_permissions(administrator=True)
     async def definir_salon_rappel(self, interaction: discord.Interaction, salon: discord.TextChannel):
         if not await is_admin(interaction.user):
-            return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+            return await interaction.response.send_message("❌ Réservé aux admins.", ephemeral=True)
         cfg = charger_config()
         cfg["salon_rappel_whitelist"] = str(salon.id)
         sauvegarder_config(cfg)
-        await interaction.response.send_message(f"✅ Salon de rappel défini : {salon.mention}", ephemeral=True)
+        await interaction.response.send_message(f"✅ Salon rappel : {salon.mention}.", ephemeral=True)
 
-    # Admin : définir rôles
-    @app_commands.command(name="definir_role_non_verifie", description="Définir le rôle des non vérifiés")
+    # Définir rôles
+    @app_commands.command(name="definir_role_admin", description="Définir rôle admin pour pings")
     @app_commands.default_permissions(administrator=True)
-    async def definir_role_non_verifie(self, interaction: discord.Interaction, role: discord.Role):
+    async def definir_role_admin(self, interaction: discord.Interaction, role: discord.Role):
         if not await is_admin(interaction.user):
-            return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+            return await interaction.response.send_message("❌ Réservé aux admins.", ephemeral=True)
         cfg = charger_config()
-        cfg["role_non_verifie_id"] = str(role.id)
+        cfg["role_admin_id"] = str(role.id)
         sauvegarder_config(cfg)
-        await interaction.response.send_message(f"✅ Rôle non vérifié défini : {role.mention}", ephemeral=True)
+        await interaction.response.send_message(f"✅ Rôle admin : {role.mention}.", ephemeral=True)
 
-    @app_commands.command(name="definir_role_membre", description="Définir le rôle des membres validés")
+    @app_commands.command(name="definir_role_staff", description="Définir rôle staff pour pings")
     @app_commands.default_permissions(administrator=True)
-    async def definir_role_membre(self, interaction: discord.Interaction, role: discord.Role):
+    async def definir_role_staff(self, interaction: discord.Interaction, role: discord.Role):
         if not await is_admin(interaction.user):
-            return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+            return await interaction.response.send_message("❌ Réservé aux admins.", ephemeral=True)
         cfg = charger_config()
-        cfg["role_membre_id"] = str(role.id)
+        cfg["role_staff_id"] = str(role.id)
         sauvegarder_config(cfg)
-        await interaction.response.send_message(f"✅ Rôle membre défini : {role.mention}", ephemeral=True)
+        await interaction.response.send_message(f"✅ Rôle staff : {role.mention}.", ephemeral=True)
 
-    # Admin : lister whitelist
-    @app_commands.command(name="lister_whitelist", description="Afficher tous les membres whitelistés")
+    # Lister whitelist
+    @app_commands.command(name="lister_whitelist", description="Afficher membres whitelistés")
     @app_commands.default_permissions(administrator=True)
     async def lister_whitelist(self, interaction: discord.Interaction):
         if not await is_admin(interaction.user):
-            return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+            return await interaction.response.send_message("❌ Réservé aux admins.", ephemeral=True)
         wl = await load_whitelist()
         if not wl:
-            return await interaction.response.send_message("ℹ️ La whitelist est vide.", ephemeral=True)
+            return await interaction.response.send_message("ℹ️ Whitelist vide.", ephemeral=True)
         lignes = [f"{e['prenom']} {e['nom']} — <@{e['user_id']}> (validé : {e['validated'][:10]})" for e in wl]
         embed = discord.Embed(title="Whitelist", description="\n".join(lignes), color=discord.Color.green())
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # Admin : rechercher whitelist
+    # Rechercher whitelist
     @app_commands.command(name="rechercher_whitelist", description="Rechercher dans la whitelist")
     async def rechercher_whitelist(self, interaction: discord.Interaction, query: str):
         if not (await is_admin(interaction.user) or role_autorise(interaction, "rechercher_whitelist")):
@@ -277,30 +277,30 @@ class Whitelist(commands.Cog):
         embed = discord.Embed(title="Résultats", description="\n".join(lignes), color=discord.Color.green())
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # Admin : retirer whitelist
-    @app_commands.command(name="retirer_whitelist", description="Retirer un utilisateur de la whitelist")
+    # Retirer whitelist
+    @app_commands.command(name="retirer_whitelist", description="Retirer utilisateur de la whitelist")
     @app_commands.default_permissions(administrator=True)
     async def retirer_whitelist(self, interaction: discord.Interaction, membre: discord.Member):
         if not await is_admin(interaction.user):
-            return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+            return await interaction.response.send_message("❌ Réservé aux admins.", ephemeral=True)
         wl = await load_whitelist()
         entry = next((e for e in wl if e['user_id'] == membre.id), None)
         if not entry:
-            return await interaction.response.send_message("ℹ️ L'utilisateur n'est pas whitelisté.", ephemeral=True)
+            return await interaction.response.send_message("ℹ️ Utilisateur non whitelisté.", ephemeral=True)
         wl.remove(entry)
         await save_whitelist(wl)
         # Gestion des rôles
         guild = interaction.guild
         cfg = charger_config()
         rv = guild.get_role(int(cfg.get("role_non_verifie_id"))) if cfg.get("role_non_verifie_id") else discord.utils.get(guild.roles, name="Non vérifié")
-        rm = guild.get_role(int(cfg.get("role_membre_id"))) if cfg.get("role_membre_id") else discord.utils.get(guild.roles, name="Membre")
+        rm = guild.get_role(int(cfg.get("role_membre_id")))      if cfg.get("role_membre_id")      else discord.utils.get(guild.roles, name="Membre")
         if rm and rm in membre.roles:
             await membre.remove_roles(rm)
         if rv and rv not in membre.roles:
             await membre.add_roles(rv)
-        await interaction.response.send_message(f"✅ {membre.mention} retiré de la whitelist.", ephemeral=True)
+        await interaction.response.send_message(f"✅ {membre.mention} retiré.", ephemeral=True)
 
-    # Rappel périodique des demandes
+    # Rappel périodique
     @tasks.loop(hours=1)
     async def reminder_loop(self):
         cfg = charger_config()
