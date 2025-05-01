@@ -47,17 +47,23 @@ class DemandeAccesModal(discord.ui.Modal, title="Demande d'accès au serveur"):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            await interaction.response.defer(ephemeral=True)
+            await interaction.response.send_message("⏳ Traitement de votre demande...", ephemeral=True)
+        except Exception:
+            return  # interaction déjà expirée
+
+        try:
             cog = self.bot.get_cog("whitelist")
             if cog is None:
-                await interaction.followup.send("❌ Erreur interne, le cog whitelist est introuvable.", ephemeral=True)
+                await interaction.followup.send("❌ Erreur interne : module whitelist introuvable.", ephemeral=True)
                 return
+
             await cog.ajouter_demande(
                 user_id=self.user_id,
                 timestamp=datetime.utcnow().isoformat(),
                 nom=self.nom.value,
                 prenom=self.prenom.value
             )
+
             embed = discord.Embed(
                 title="📨 Nouvelle demande d'accès",
                 description=(
@@ -68,19 +74,25 @@ class DemandeAccesModal(discord.ui.Modal, title="Demande d'accès au serveur"):
                 color=discord.Color.blurple()
             )
             embed.set_footer(text=f"ID utilisateur : {self.user_id}")
+
             config = charger_config()
             salon_id = config.get("journal_validation_channel")
-            if salon_id:
-                salon = interaction.guild.get_channel(int(salon_id))
-                if salon:
-                    view = ValidationButtons(self.bot, self.user_id, self.nom.value, self.prenom.value)
-                    await salon.send(embed=embed, view=view)
-            await interaction.followup.send("✅ Votre demande a bien été transmise aux modérateurs.", ephemeral=True)
-        except Exception as e:
-            await log_erreur(self.bot, interaction.guild, f"DemandeAccesModal on_submit : {e}")
+            salon = interaction.guild.get_channel(int(salon_id)) if salon_id else None
+
+            if salon:
+                view = ValidationButtons(self.bot, self.user_id, self.nom.value, self.prenom.value)
+                await salon.send(embed=embed, view=view)
+                await interaction.followup.send("✅ Votre demande a bien été transmise aux modérateurs.", ephemeral=True)
+            else:
+                await interaction.followup.send(
+                    "⚠️ Demande enregistrée, mais aucun salon de validation n’est configuré. Merci de prévenir un modérateur.",
+                    ephemeral=True
+                )
+
+        except Exception:
             try:
                 await interaction.followup.send("❌ Une erreur est survenue pendant la demande.", ephemeral=True)
-            except Exception:
+            except:
                 pass
 
 class Whitelist(commands.Cog, name="whitelist"):
@@ -119,18 +131,20 @@ class Whitelist(commands.Cog, name="whitelist"):
         await self.sauvegarder_demandes(nouvelles)
 
     @app_commands.command(
-        name="demander_acces",
-        description="Demande à rejoindre le serveur (réservé aux nouveaux membres)"
+    name="demander_acces",
+    description="Demande à rejoindre le serveur (réservé aux nouveaux membres)"
     )
     @app_commands.check(check_non_verified)
     async def demander_acces(self, interaction: discord.Interaction):
         try:
             await interaction.response.send_modal(DemandeAccesModal(self.bot, interaction.user.id))
-        except Exception as e:
-            await log_erreur(self.bot, interaction.guild, f"demander_acces : {e}")
+        except Exception:
             try:
-                await interaction.response.send_message("❌ Une erreur est survenue pendant la demande.", ephemeral=True)
-            except Exception:
+                await interaction.response.send_message(
+                    "❌ Une erreur est survenue. Merci de contacter un modérateur.",
+                    ephemeral=True
+                )
+            except:
                 pass
 
     @app_commands.command(
