@@ -256,29 +256,28 @@ class Whitelist(commands.Cog, name="whitelist"):
     )
     @app_commands.default_permissions(administrator=True)
     async def retirer_whitelist(self, interaction: discord.Interaction, utilisateur: discord.Member):
+        # Permissions
         if not await is_admin(interaction.user):
             return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
         from utils.utils import charger_whitelist, sauvegarder_whitelist
         approved = await interaction.client.loop.run_in_executor(None, charger_whitelist)
-        found_entry = next(
-            (entry for entry in approved if entry.get("user_id") == str(utilisateur.id)),
-            None
-        )
-        if found_entry:
-            approved.remove(found_entry)
+        found = next((e for e in approved if e.get("user_id")==str(utilisateur.id)), None)
+        if found:
+            approved.remove(found)
             await interaction.client.loop.run_in_executor(None, sauvegarder_whitelist, approved)
-            role_membre = discord.utils.get(interaction.guild.roles, name="Membre")
-            role_non_verifie = discord.utils.get(interaction.guild.roles, name="Non vérifié")
-            if role_membre and role_membre in utilisateur.roles:
-                await utilisateur.remove_roles(role_membre)
-            if role_non_verifie and role_non_verifie not in utilisateur.roles:
-                await utilisateur.add_roles(role_non_verifie)
-            await interaction.response.send_message(
-                f"✅ {utilisateur.mention} a été retiré de la whitelist et son statut a été réinitialisé.",
-                ephemeral=True
-            )
+        # Mise à jour des rôles
+        r_m = discord.utils.get(interaction.guild.roles, name="Membre")
+        r_nv = discord.utils.get(interaction.guild.roles, name="Non vérifié")
+        if r_m in utilisateur.roles:
+            await utilisateur.remove_roles(r_m)
+        if r_nv not in utilisateur.roles:
+            await utilisateur.add_roles(r_nv)
+        # Réponse
+        if found:
+            msg = f"✅ {utilisateur.mention} retiré de la whitelist et statut réinitialisé."
         else:
-            await interaction.response.send_message("ℹ️ Cet utilisateur n'est pas dans la whitelist.", ephemeral=True)
+            msg = f"ℹ️ {utilisateur.mention} n'était pas en whitelist, statut réinitialisé."
+        await interaction.response.send_message(msg, ephemeral=True)
 
 class ValidationButtons(discord.ui.View):
     def __init__(self, bot, user_id, nom, prenom):
