@@ -14,8 +14,9 @@ from utils.utils import (
 )
 
 # --- Paths and locks ---
-DEMANDES_PATH = "data/demandes_whitelist.json"
-WHITELIST_PATH = "data/whitelist.json"
+# Use absolute '/data' directory for persistence on Render
+DEMANDES_PATH = "/data/demandes_whitelist.json"
+WHITELIST_PATH = "/data/whitelist.json"
 _demandes_lock = asyncio.Lock()
 _whitelist_lock = asyncio.Lock()
 
@@ -63,33 +64,34 @@ async def safe_send_dm(user: discord.User, content: str):
         await log_erreur(None, None, f"safe_send_dm failed to {user.id}: {e}")
         return None
 
-# --- Request Button View (persistent) ---
+# --- Request Access Button View (persistent) ---
 class RequestAccessView(discord.ui.View):
-    def __init__(self, bot):
+    def __init__(self):
         super().__init__(timeout=None)
-        self.bot = bot
 
     @discord.ui.button(label="Demander l'accès", style=discord.ButtonStyle.primary, custom_id="whitelist_request_access")
     async def on_request(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(DemandeAccesModal(self.bot))
+        await interaction.response.send_modal(DemandeAccesModal())
 
 # --- Access Request Modal ---
 class DemandeAccesModal(discord.ui.Modal, title="Demande d'accès au serveur"):
     prenom = discord.ui.TextInput(label="Prénom", placeholder="Ton prénom", max_length=50)
     nom = discord.ui.TextInput(label="Nom", placeholder="Ton nom", max_length=50)
 
-    def __init__(self, bot):
-        super().__init__()
-        self.bot = bot
-
     async def on_submit(self, interaction: discord.Interaction):
         user = interaction.user
         demandes = await load_demandes()
-        entry = {"user_id": user.id, "prenom": self.prenom.value, "nom": self.nom.value, "timestamp": datetime.utcnow().isoformat()}
-        # update or append
+        entry = {
+            "user_id": user.id,
+            "prenom": self.prenom.value,
+            "nom": self.nom.value,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        # Replace or append
         demandes = [d for d in demandes if d.get("user_id") != user.id] + [entry]
         await save_demandes(demandes)
 
+        # Build notification
         cfg = charger_config()
         vid = cfg.get("journal_validation_channel")
         mention = ''
@@ -100,11 +102,13 @@ class DemandeAccesModal(discord.ui.Modal, title="Demande d'accès au serveur"):
             description=f"**Prénom** : {self.prenom.value}\n**Nom** : {self.nom.value}",
             color=discord.Color.blurple()
         ).set_footer(text=f"ID: {user.id}")
+
         guild = interaction.guild
         if vid and guild:
             chan = guild.get_channel(int(vid))
             if chan:
-                await chan.send(content=mention, embed=embed, view=ValidationView(self.bot, user.id, self.prenom.value, self.nom.value))
+                view = ValidationView(user.id, self.prenom.value, self.nom.value)
+                await chan.send(content=mention, embed=embed, view=view)
             else:
                 await safe_send_dm(user, "⚠️ Salon validation non trouvé.")
         else:
@@ -112,11 +116,10 @@ class DemandeAccesModal(discord.ui.Modal, title="Demande d'accès au serveur"):
 
         await interaction.response.send_message("✅ Demande envoyée aux modérateurs.", ephemeral=True)
 
-# --- Validation Buttons View ---
+# --- Validation Buttons View (persistent) ---
 class ValidationView(discord.ui.View):
-    def __init__(self, bot, user_id: int, prenom: str, nom: str):
+    def __init__(self, user_id: int, prenom: str, nom: str):
         super().__init__(timeout=None)
-        self.bot = bot
         self.user_id = user_id
         self.prenom = prenom
         self.nom = nom
@@ -134,56 +137,73 @@ class ValidationView(discord.ui.View):
         member = guild.get_member(self.user_id)
         if not member:
             return await interaction.followup.send("❌ Utilisateur introuvable.", ephemeral=True)
+
         rv, rm = await self._roles(guild)
         try:
-            if rv in member.roles: await member.remove_roles(rv)
-            if rm: await member.add_roles(rm)
+            if rv in member.roles:
+                await member.remove_roles(rv)
+            if rm:
+                await member.add_roles(rm)
         except Exception as e:
-            await log_erreur(self.bot, guild, f"Role management failed: {e}")
+            await log_erreur(None, guild, f"Role management failed: {e}")
+
         # DM
         msg_val = charger_config().get("message_validation", "🎉 Bienvenue !")
         await safe_send_dm(member, msg_val)
-        # save whitelist
+
+        # Save whitelist
         wl = await load_whitelist()
         if not any(e.get("user_id") == member.id for e in wl):
-            wl.append({"user_id": member.id, "prenom": self.prenom, "nom": self.nom, "validated": datetime.utcnow().isoformat()})
+            wl.append({
+                "user_id": member.id,
+                "prenom": self.prenom,
+                "nom": self.nom,
+                "validated": datetime.utcnow().isoformat()
+            })
             await save_whitelist(wl)
-        # remove demande
+
+        # Remove demande
         demandes = await load_demandes()
         demandes = [d for d in demandes if d.get("user_id") != member.id]
         await save_demandes(demandes)
-        # edit message
+
+        # Edit embed
         msg = interaction.message
         embed = msg.embeds[0]
         embed.color = discord.Color.green()
         embed.add_field(name="Statut", value=f"✅ Accepté par {interaction.user.mention}", inline=False)
-        for c in self.children: c.disabled = True
+        for item in self.children:
+            item.disabled = True
         await msg.edit(content=msg.content, embed=embed, view=self)
         await interaction.followup.send("✅ Utilisateur accepté.", ephemeral=True)
 
     @discord.ui.button(label="❌ Refuser", style=discord.ButtonStyle.danger, custom_id="validation_decline")
     async def refuser(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
-        user = self.bot.get_user(self.user_id)
-        if user: await safe_send_dm(user, "❌ Ta demande a été refusée.")
+        user = interaction.client.get_user(self.user_id)
+        if user:
+            await safe_send_dm(user, "❌ Ta demande a été refusée.")
+
         demandes = await load_demandes()
         demandes = [d for d in demandes if d.get("user_id") != self.user_id]
         await save_demandes(demandes)
+
         msg = interaction.message
         embed = msg.embeds[0]
         embed.color = discord.Color.red()
         embed.add_field(name="Statut", value=f"❌ Refusé par {interaction.user.mention}", inline=False)
-        for c in self.children: c.disabled = True
+        for item in self.children:
+            item.disabled = True
         await msg.edit(content=msg.content, embed=embed, view=self)
         await interaction.followup.send("⛔ Utilisateur refusé.", ephemeral=True)
 
 # --- Main Cog ---
 class Whitelist(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # register persistent views
-        bot.add_view(RequestAccessView(bot))
-        bot.add_view(ValidationView(bot, 0, "", ""))  # necessary for restoration
+        # Register persistent views
+        bot.add_view(RequestAccessView())
+        bot.add_view(ValidationView(0, "", ""))
         self.reminder_loop.start()
 
     def cog_unload(self):
@@ -194,8 +214,12 @@ class Whitelist(commands.Cog):
     async def publier_demande_acces(self, interaction: discord.Interaction, salon: discord.TextChannel):
         if not await is_admin(interaction.user):
             return await interaction.response.send_message("❌ Réservé aux admins.", ephemeral=True)
-        embed = discord.Embed(title="Demande d'accès", description="Clique pour demander l'accès.", color=discord.Color.blurple())
-        await salon.send(embed=embed, view=RequestAccessView(self.bot))
+        embed = discord.Embed(
+            title="Demande d'accès",
+            description="Clique pour demander l'accès.",
+            color=discord.Color.blurple()
+        )
+        await salon.send(embed=embed, view=RequestAccessView())
         await interaction.response.send_message("✅ Bouton publié.", ephemeral=True)
 
     @app_commands.command(name="definir_salon_validation", description="Définir salon validation")
@@ -258,7 +282,7 @@ class Whitelist(commands.Cog):
     @app_commands.default_permissions(administrator=True)
     async def verifier_config_whitelist(self, interaction: discord.Interaction):
         cfg = charger_config()
-        champs = {
+        items = {
             "Salon validation": cfg.get("journal_validation_channel"),
             "Salon rappel": cfg.get("salon_rappel_whitelist"),
             "Rôle admin": cfg.get("role_admin_id"),
@@ -268,17 +292,18 @@ class Whitelist(commands.Cog):
             "Message validation": cfg.get("message_validation"),
         }
         desc = ""
-        for nom, val in champs.items():
+        for key, val in items.items():
             if val:
-                if "Salon" in nom:
-                    desc += f"✅ **{nom}** : <#{val}>\n"
-                elif "Rôle" in nom:
-                    desc += f"✅ **{nom}** : <@&{val}>\n"
+                if "Salon" in key:
+                    desc += f"✅ **{key}** : <#{val}>\n"
+                elif "Rôle" in key:
+                    desc += f"✅ **{key}** : <@&{val}>\n"
                 else:
-                    desc += f"✅ **{nom}** : {val}\n"
+                    desc += f"✅ **{key}** : {val}\n"
             else:
-                desc += f"❌ **{nom}** : non défini\n"
-        await interaction.response.send_message(embed=discord.Embed(title="📋 Config Whitelist", description=desc, color=discord.Color.blurple()), ephemeral=True)
+                desc += f"❌ **{key}** : non défini\n"
+        embed = discord.Embed(title="📋 Config Whitelist", description=desc, color=discord.Color.blurple())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="lister_whitelist", description="Liste des membres validés")
     @app_commands.default_permissions(administrator=True)
@@ -286,19 +311,24 @@ class Whitelist(commands.Cog):
         wl = await load_whitelist()
         if not wl:
             return await interaction.response.send_message("ℹ️ Whitelist vide.", ephemeral=True)
-        lines = [f"{e['prenom']} {e['nom']} — <@{e['user_id']}> (validé: {e['validated'][:10]})" for e in wl]
-        await interaction.response.send_message(embed=discord.Embed(title="Whitelist", description="\n".join(lines), color=discord.Color.green()), ephemeral=True)
+        lines = [
+            f"{e['prenom']} {e['nom']} — <@{e['user_id']}> (validé: {e['validated'][:10]})"
+            for e in wl
+        ]
+        embed = discord.Embed(title="Whitelist", description="\n".join(lines), color=discord.Color.green())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="rechercher_whitelist", description="Rechercher un membre")
     async def rechercher_whitelist(self, interaction: discord.Interaction, query: str):
         if not (await is_admin(interaction.user) or role_autorise(interaction, "rechercher_whitelist")):
             return await interaction.response.send_message("❌ Pas la permission.", ephemeral=True)
         wl = await load_whitelist()
-        results = [e for e in wl if query.lower() in e['prenom'].lower() or query.lower() in e['nom'].lower()]
-        if not results:
+        matches = [e for e in wl if query.lower() in e['prenom'].lower() or query.lower() in e['nom'].lower()]
+        if not matches:
             return await interaction.response.send_message(f"❌ Aucun résultat pour '{query}'", ephemeral=True)
-        lines = [f"{e['prenom']} {e['nom']} — <@{e['user_id']}>" for e in results]
-        await interaction.response.send_message(embed=discord.Embed(title="Résultats", description="\n".join(lines), color=discord.Color.green()), ephemeral=True)
+        desc = "\n".join(f"{e['prenom']} {e['nom']} — <@{e['user_id']}>" for e in matches)
+        embed = discord.Embed(title="Résultats", description=desc, color=discord.Color.green())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="retirer_whitelist", description="Retirer un membre")
     @app_commands.default_permissions(administrator=True)
@@ -309,12 +339,14 @@ class Whitelist(commands.Cog):
             return await interaction.response.send_message("ℹ️ Non whitelisté.", ephemeral=True)
         wl.remove(entry)
         await save_whitelist(wl)
-        rv, rm = await ValidationView(self.bot,0, "", "")._roles(interaction.guild)
+        rv, rm = await ValidationView(0, "", "")._roles(interaction.guild)
         try:
-            if rm in membre.roles: await membre.remove_roles(rm)
-            if rv and rv not in membre.roles: await membre.add_roles(rv)
+            if rm in membre.roles:
+                await membre.remove_roles(rm)
+            if rv and rv not in membre.roles:
+                await membre.add_roles(rv)
         except Exception as e:
-            await log_erreur(self.bot, interaction.guild, f"Role revert failed: {e}")
+            await log_erreur(None, interaction.guild, f"Role revert failed: {e}")
         await interaction.response.send_message(f"✅ {membre.mention} retiré.", ephemeral=True)
 
     @tasks.loop(hours=1)
