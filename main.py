@@ -1,3 +1,4 @@
+# main.py
 import discord
 from discord.ext import commands
 import asyncio
@@ -5,6 +6,9 @@ import os
 from dotenv import load_dotenv
 from keep_alive import keep_alive
 from utils.utils import charger_config
+
+# ───────────── Création du dossier /data si nécessaire ─────────────
+os.makedirs("/data", exist_ok=True)
 
 # ───────────── Lancement du serveur keep-alive ─────────────
 keep_alive()
@@ -28,12 +32,10 @@ async def on_error(event, *args, **kwargs):
         import traceback
         error_info = traceback.format_exc()
         print(f"[ERREUR GLOBALE] {error_info}")
-
         config = charger_config()
         log_channel_id = int(config.get("log_erreurs_channel", 0))
         if not log_channel_id:
             return
-
         for guild in bot.guilds:
             channel = guild.get_channel(log_channel_id)
             if channel:
@@ -91,12 +93,10 @@ async def load_cogs():
         print("✅ LoisirCommands chargé")
 
         await missions.setup(bot)
-        print ("✅ missions chargé")
+        print("✅ Missions chargé")
 
         await checkin.setup(bot)
-        print ("✅ checkin chargé")
-
-
+        print("✅ Checkin chargé")
     except Exception as e:
         print(f"❌ Erreur lors du chargement des Cogs : {e}")
 

@@ -1,3 +1,4 @@
+# whitelist.py
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -95,8 +96,10 @@ class DemandeAccesModal(discord.ui.Modal, title="Demande d'accès au serveur"):
         cfg = charger_config()
         vid = cfg.get("journal_validation_channel")
         mention = ''
-        if cfg.get("role_admin_id"): mention += f"<@&{cfg['role_admin_id']}> "
-        if cfg.get("role_staff_id"): mention += f"<@&{cfg['role_staff_id']}>"
+        if cfg.get("role_admin_id"):
+            mention += f"<@&{cfg['role_admin_id']}> "
+        if cfg.get("role_staff_id"):
+            mention += f"<@&{cfg['role_staff_id']}>"
         embed = discord.Embed(
             title="📨 Nouvelle demande d'accès",
             description=f"**Prénom** : {self.prenom.value}\n**Nom** : {self.nom.value}",
