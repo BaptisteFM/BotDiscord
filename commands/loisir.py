@@ -31,7 +31,6 @@ class SortieModal(discord.ui.Modal, title="Proposer une sortie / activité"):
             salon_pub_id = get_redirection("sortie") or cfg.get("sortie_channel")
             role_id = cfg.get("role_sortie")
             staff_id = cfg.get("role_staff_sortie")
-
             if not salon_pub_id or not role_id:
                 return await interaction.response.send_message("❌ Salon ou rôle non défini.", ephemeral=True)
 
@@ -42,12 +41,11 @@ class SortieModal(discord.ui.Modal, title="Proposer une sortie / activité"):
             if not salon_pub or not role:
                 return await interaction.response.send_message("❌ Configuration invalide.", ephemeral=True)
 
-            # Ping visible pour notif
+            # Ping visible pour notification
             await salon_pub.send(role.mention)
 
-            # Création slug sans ID
+            # Création de la catégorie privée
             slug = self.jour.value.replace(' ', '-')
-            # Démarre à 1 (l'auteur)
             cat_name = f"sortie-{slug} - 1"
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(read_messages=False),
@@ -61,23 +59,23 @@ class SortieModal(discord.ui.Modal, title="Proposer une sortie / activité"):
             txt = await guild.create_text_channel("discussion-sortie", category=category)
             await guild.create_voice_channel("vocal-sortie", category=category)
 
-            # Message privé auteur + vue de gestion (rejoint + quitter + fermer)
-            view = SortieGestionView(category, self.auteur, role_staff)
-            await txt.send(f"🔔 {self.auteur.mention}, ta sortie est ici !", view=view)
-
-            # Message public embed + participation
-            desc = (
-                f"**Date :** {self.jour.value}\n"
-                f"**Lieu :** {self.lieu.value}\n"
-                f"**Activité :** {self.activite.value}"
-            )
-            if self.details.value:
-                desc += f"\n\n{self.details.value}"
-            embed = discord.Embed(title="📢 Nouvelle sortie proposée !", description=desc, color=discord.Color.green())
-            embed.set_footer(text=f"Proposée par {self.auteur.display_name}")
-            # Vue public pour rejoindre uniquement
+            # Vue de gestion (quitter + fermer) dans le salon privé
+            # On récupère le message public après envoi
             join_view = ParticiperSortieView(category)
-            await salon_pub.send(embed=embed, view=join_view)
+            embed = discord.Embed(
+                title="📢 Nouvelle sortie proposée !",
+                description=(
+                    f"**Date :** {self.jour.value}\n"
+                    f"**Lieu :** {self.lieu.value}\n"
+                    f"**Activité :** {self.activite.value}"
+                ) + (f"\n\n{self.details.value}" if self.details.value else ""),
+                color=discord.Color.green()
+            )
+            embed.set_footer(text=f"Proposée par {self.auteur.display_name}")
+            public_msg = await salon_pub.send(embed=embed, view=join_view)
+
+            gestion_view = SortieGestionView(category, self.auteur, role_staff, public_msg)
+            await txt.send(f"🔔 {self.auteur.mention}, ta sortie est ici !", view=gestion_view)
 
             await interaction.response.send_message("✅ Sortie proposée !", ephemeral=True)
         except Exception as e:
@@ -85,72 +83,66 @@ class SortieModal(discord.ui.Modal, title="Proposer une sortie / activité"):
             await log_erreur(self.bot, interaction.guild, f"SortieModal: {e}")
 
 class ParticiperSortieView(discord.ui.View):
-    def __init__(self, category):
+    def __init__(self, category: discord.CategoryChannel):
         super().__init__(timeout=None)
         self.category = category
-        self.participants = {category.guild.owner_id}  # initial empty placeholder
 
     @discord.ui.button(label="Je suis chaud(e) 🔥", style=discord.ButtonStyle.success)
     async def rejoindre(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
-        if user.id in self.participants:
-            return await interaction.response.send_message("ℹ️ Déjà inscrit.", ephemeral=True)
-        # Donner l'accès
+        # Donner accès aux salons privés
         for ch in self.category.channels:
             await ch.set_permissions(user, read_messages=True, send_messages=True)
-        self.participants.add(user.id)
-        # Mettre à jour le nom de la catégorie
-        base = self.category.name.rsplit(' - ', 1)[0]
-        await self.category.edit(name=f"{base} - {len(self.participants)}")
-        await interaction.response.send_message("✅ Tu as rejoint !", ephemeral=True)
+        # Incrémenter le compteur dans le nom de la catégorie
+        base, count_str = self.category.name.rsplit(' - ', 1)
+        new_count = int(count_str) + 1
+        await self.category.edit(name=f"{base} - {new_count}")
+        await interaction.response.send_message("✅ Tu as rejoint la sortie !", ephemeral=True)
 
 class SortieGestionView(discord.ui.View):
-    def __init__(self, category, auteur, staff_role=None):
+    def __init__(self, category, auteur, staff_role=None, public_msg: discord.Message = None):
         super().__init__(timeout=None)
         self.category = category
         self.auteur = auteur
         self.staff_role = staff_role
-        self.participants = {auteur.id}
+        self.public_msg = public_msg
 
-    @discord.ui.button(label="Je suis chaud(e) 🔥", style=discord.ButtonStyle.success)
-    async def rejoindre(self, interaction: discord.Interaction, button: discord.ui.Button):
-        user = interaction.user
-        if user.id in self.participants:
-            return await interaction.response.send_message("ℹ️ Déjà inscrit.", ephemeral=True)
-        for ch in self.category.channels:
-            await ch.set_permissions(user, read_messages=True, send_messages=True)
-        self.participants.add(user.id)
-        base = self.category.name.rsplit(' - ', 1)[0]
-        await self.category.edit(name=f"{base} - {len(self.participants)}")
-        await interaction.response.send_message("✅ Inscrit !", ephemeral=True)
-
-    @discord.ui.button(label="Finalement pas là ❌", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Finalement je ne serai pas là ❌", style=discord.ButtonStyle.danger)
     async def quitter(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
         if user.id == self.auteur.id:
-            return await interaction.response.send_message("❌ Impossible de quitter ta propre sortie.", ephemeral=True)
-        if user.id not in self.participants:
-            return await interaction.response.send_message("ℹ️ Tu n'étais pas inscrit.", ephemeral=True)
+            return await interaction.response.send_message(
+                "❌ Tu ne peux pas quitter ta propre sortie.", ephemeral=True
+            )
+        # Retirer accès
         for ch in self.category.channels:
             await ch.set_permissions(user, overwrite=None)
-        self.participants.discard(user.id)
-        base = self.category.name.rsplit(' - ', 1)[0]
-        await self.category.edit(name=f"{base} - {len(self.participants)}")
-        await interaction.response.send_message("🚫 Tu as quitté.", ephemeral=True)
+        # Décrémenter le compteur
+        base, count_str = self.category.name.rsplit(' - ', 1)
+        new_count = int(count_str) - 1
+        await self.category.edit(name=f"{base} - {new_count}")
+        await interaction.response.send_message("🚫 Tu as quitté la sortie.", ephemeral=True)
 
     @discord.ui.button(label="Sortie passée ✅", style=discord.ButtonStyle.danger)
     async def fermer(self, interaction: discord.Interaction, button: discord.ui.Button):
         user = interaction.user
-        if user.id != self.auteur.id and (not self.staff_role or self.staff_role.id not in [r.id for r in user.roles]):
-            return await interaction.response.send_message("❌ Seul auteur ou staff.", ephemeral=True)
+        allowed = user.id == self.auteur.id or (self.staff_role and self.staff_role in user.roles)
+        if not allowed:
+            return await interaction.response.send_message(
+                "❌ Seul l’auteur ou le staff peut fermer.", ephemeral=True
+            )
         try:
+            # Supprimer salons et catégorie
             for ch in list(self.category.channels):
                 await ch.delete()
             await self.category.delete()
+            # Supprimer le message public
+            if self.public_msg:
+                await self.public_msg.delete()
             await interaction.response.send_message("✅ Sortie fermée.", ephemeral=True)
         except Exception as e:
             await log_erreur(interaction.client, interaction.guild, f"SortieGestionView: {e}")
-            await interaction.response.send_message("❌ Erreur.", ephemeral=True)
+            await interaction.response.send_message("❌ Erreur lors de la fermeture.", ephemeral=True)
 
 class LoisirCommands(commands.Cog):
     def __init__(self, bot):
