@@ -106,4 +106,7 @@ if __name__ == "__main__":
         await load_cogs()
         await bot.start(TOKEN)
 
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+
     asyncio.run(main())
