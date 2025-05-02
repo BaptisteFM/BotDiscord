@@ -236,68 +236,58 @@ class AdminCommands(commands.Cog):
                 embed.add_field(name=cmd, value=", ".join(role_mentions) if role_mentions else "Aucun rôle", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="creer_reaction_role", description="Crée un message Reaction Role via modal.")
+    @app_commands.command(name="creer_reaction_role", description="Crée ou ajoute un reaction role (simple et fiable)")
     @app_commands.default_permissions(administrator=True)
-    async def creer_reaction_role(self, interaction: discord.Interaction, canal: discord.TextChannel):
+    async def creer_reaction_role(
+        self, interaction: discord.Interaction,
+        canal: discord.TextChannel,
+        emoji: str,
+        role: discord.Role,
+        message_id: str = None
+    ):
         if not await is_admin(interaction.user):
             return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
-        class ReactionRoleModal(discord.ui.Modal, title="Création d'un Reaction Role"):
-            message = discord.ui.TextInput(
-                label="Message à poster",
+
+        if message_id:
+            # Ajout à un message existant
+            try:
+                msg = await canal.fetch_message(int(message_id))
+                await msg.add_reaction(emoji)
+
+                mapping = load_reaction_role_mapping()
+                mapping.setdefault(str(msg.id), []).append({"emoji": emoji, "role_id": role.id})
+                save_reaction_role_mapping(mapping)
+
+                return await interaction.response.send_message("✅ Reaction role ajouté au message existant !", ephemeral=True)
+            except Exception as e:
+                await log_erreur(self.bot, interaction.guild, f"Ajout RR à message existant : {e}")
+                return await interaction.response.send_message("❌ Erreur lors de l'ajout du reaction role.", ephemeral=True)
+
+        # Sinon, création via modal
+        class ReactionRoleModal(discord.ui.Modal, title="Message du Reaction Role"):
+            contenu = discord.ui.TextInput(
+                label="Contenu du message à poster",
                 style=discord.TextStyle.paragraph,
-                placeholder="Tapez ici le contenu du message pour le reaction role.",
+                placeholder="Tape ici ton message reaction role",
                 required=True
             )
-            pair1 = discord.ui.TextInput(
-                label="Association 1 (emoji, role)",
-                style=discord.TextStyle.short,
-                placeholder="Ex: 😀, @EtudiantMath",
-                required=False
-            )
-            pair2 = discord.ui.TextInput(
-                label="Association 2 (emoji, role)",
-                style=discord.TextStyle.short,
-                placeholder="Ex: 😎, @EtudiantPhysique",
-                required=False
-            )
-            pair3 = discord.ui.TextInput(
-                label="Association 3 (emoji, role)",
-                style=discord.TextStyle.short,
-                placeholder="Ex: 🎯, @EtudiantChimie",
-                required=False
-            )
 
-            async def on_submit(self, modal_interaction: discord.Interaction):
+            async def on_submit(self_inner, modal_interaction: discord.Interaction):
                 try:
-                    channel = modal_interaction.data.get("channel_object")
-                    if not channel:
-                        await modal_interaction.response.send_message("❌ Canal non spécifié.", ephemeral=True)
-                        return
-                    pairs = []
-                    for field in [self.pair1.value, self.pair2.value, self.pair3.value]:
-                        if field and "," in field:
-                            parts = field.split(",", 1)
-                            emoji = parts[0].strip()
-                            role_str = parts[1].strip()
-                            if role_str.startswith("<@&") and role_str.endswith(">"):
-                                role_id = int(role_str.strip("<@&>"))
-                                pairs.append((emoji, role_id))
-                    msg = await channel.send(self.message.value)
-                    for emoji, role_id in pairs:
-                        try:
-                            await msg.add_reaction(emoji)
-                        except Exception as e:
-                            print(f"Erreur sur l'emoji {emoji} : {e}")
+                    msg = await canal.send(self_inner.contenu.value)
+                    await msg.add_reaction(emoji)
+
                     mapping = load_reaction_role_mapping()
-                    mapping[str(msg.id)] = [{"emoji": emoji, "role_id": role_id} for emoji, role_id in pairs]
+                    mapping[str(msg.id)] = [{"emoji": emoji, "role_id": role.id}]
                     save_reaction_role_mapping(mapping)
-                    await modal_interaction.response.send_message("✅ Reaction role créé avec succès.", ephemeral=True)
+
+                    await modal_interaction.response.send_message("✅ Reaction role créé avec succès !", ephemeral=True)
                 except Exception as e:
-                    await log_erreur(self.bot, modal_interaction.guild, f"ReactionRoleModal on_submit: {e}")
-                    await modal_interaction.response.send_message("❌ Erreur lors de la création du Reaction Role.", ephemeral=True)
-        modal = ReactionRoleModal()
-        modal.__dict__["channel_object"] = canal
-        await interaction.response.send_modal(modal)
+                    await log_erreur(self.bot, interaction.guild, f"Modal RR creation : {e}")
+                    await modal_interaction.response.send_message("❌ Erreur lors de la création du reaction role.", ephemeral=True)
+
+        await interaction.response.send_modal(ReactionRoleModal())
+
 
     @app_commands.command(name="clear_messages", description="Supprime les N derniers messages du canal.")
     @app_commands.default_permissions(administrator=True)
