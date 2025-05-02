@@ -72,6 +72,7 @@ async def load_cogs():
         from commands import loisir
         from commands import missions
         from commands import checkin
+        from commands import reaction_roles
 
         await setup_test(bot)
         await setup_admin_commands(bot)
@@ -94,6 +95,9 @@ async def load_cogs():
 
         await missions.setup(bot)
         print("✅ Missions chargé")
+
+        await reaction_roles.setup(bot)
+        print("✅ ReactionRole chargé")
 
         await checkin.setup(bot)
         print("✅ Checkin chargé")
