@@ -64,7 +64,7 @@ async def safe_send_dm(user: discord.User, content: str):
         return None
 
 # --- Request Button View (persistent) ---
-class RequestAccessView(discord.ui.View, persistent=True):
+class RequestAccessView(discord.ui.View):
     def __init__(self, bot):
         super().__init__(timeout=None)
         self.bot = bot
@@ -113,7 +113,7 @@ class DemandeAccesModal(discord.ui.Modal, title="Demande d'accès au serveur"):
         await interaction.response.send_message("✅ Demande envoyée aux modérateurs.", ephemeral=True)
 
 # --- Validation Buttons View ---
-class ValidationView(discord.ui.View, persistent=True):
+class ValidationView(discord.ui.View):
     def __init__(self, bot, user_id: int, prenom: str, nom: str):
         super().__init__(timeout=None)
         self.bot = bot
@@ -127,7 +127,7 @@ class ValidationView(discord.ui.View, persistent=True):
         rm = guild.get_role(int(cfg.get("role_membre_id", 0))) or discord.utils.get(guild.roles, name="Membre")
         return rv, rm
 
-    @discord.ui.button(label="✅ Accepter", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="✅ Accepter", style=discord.ButtonStyle.success, custom_id="validation_accept")
     async def accepter(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         guild = interaction.guild
@@ -161,7 +161,7 @@ class ValidationView(discord.ui.View, persistent=True):
         await msg.edit(content=msg.content, embed=embed, view=self)
         await interaction.followup.send("✅ Utilisateur accepté.", ephemeral=True)
 
-    @discord.ui.button(label="❌ Refuser", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="❌ Refuser", style=discord.ButtonStyle.danger, custom_id="validation_decline")
     async def refuser(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         user = self.bot.get_user(self.user_id)
