@@ -2,9 +2,8 @@ import discord
 from discord.ext import commands
 import json
 import os
-from utils.utils import log_erreur
+from utils.utils import log_erreur, charger_config
 
-# → passe en /data
 WHITELIST_PATH = "/data/whitelist.json"
 
 def charger_whitelist():
@@ -26,14 +25,17 @@ class WhitelistEvents(commands.Cog):
     async def on_member_join(self, member: discord.Member):
         try:
             whitelist = charger_whitelist()
-            role_membre = discord.utils.get(member.guild.roles, name="Membre")
-            role_non_verifie = discord.utils.get(member.guild.roles, name="Non vérifié")
+            whitelist_ids = [entry.get("user_id") for entry in whitelist]
 
-            if member.id in whitelist:
+            config = charger_config()
+            role_membre = member.guild.get_role(int(config.get("role_membre_id", 0)))
+            role_non_verifie = member.guild.get_role(int(config.get("role_non_verifie_id", 0)))
+
+            if member.id in whitelist_ids:
                 if role_membre:
                     await member.add_roles(role_membre)
                     try:
-                        await member.send("✅ Tu as été automatiquement intégré. Bienvenue !")
+                        await member.send("✅ Tu as été automatiquement intégré au serveur. Bienvenue !")
                     except:
                         pass
             else:
