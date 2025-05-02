@@ -4,7 +4,8 @@ import json
 import os
 from utils.utils import log_erreur
 
-WHITELIST_PATH = "data/whitelist.json"
+# → passe en /data
+WHITELIST_PATH = "/data/whitelist.json"
 
 def charger_whitelist():
     if not os.path.exists(WHITELIST_PATH):
@@ -13,7 +14,7 @@ def charger_whitelist():
         return json.load(f)
 
 def sauvegarder_whitelist(whitelist):
-    os.makedirs("data", exist_ok=True)
+    os.makedirs(os.path.dirname(WHITELIST_PATH), exist_ok=True)
     with open(WHITELIST_PATH, "w", encoding="utf-8") as f:
         json.dump(whitelist, f, indent=4)
 
@@ -32,7 +33,7 @@ class WhitelistEvents(commands.Cog):
                 if role_membre:
                     await member.add_roles(role_membre)
                     try:
-                        await member.send("✅ Tu as été automatiquement intégré au serveur. Bienvenue !")
+                        await member.send("✅ Tu as été automatiquement intégré. Bienvenue !")
                     except:
                         pass
             else:
