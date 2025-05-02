@@ -346,6 +346,16 @@ class Whitelist(commands.Cog):
         if rv not in member.roles: await member.add_roles(rv)
         await interaction.response.send_message(f"✅ {member.mention} retiré.", ephemeral=True)
 
+    @app_commands.command(name="definir_message_validation", description="Définir le message privé envoyé après validation")
+    @app_commands.default_permissions(administrator=True)
+    async def definir_message_validation(self, interaction: discord.Interaction, message: str):
+        if not await is_admin(interaction.user):
+            return await interaction.response.send_message("❌ Réservé aux admins.", ephemeral=True)
+        cfg = charger_config()
+        cfg["message_validation"] = message
+        sauvegarder_config(cfg)
+        await interaction.response.send_message("✅ Message de validation mis à jour.", ephemeral=True)
+
     # rappel périodique
     @tasks.loop(hours=1)
     async def reminder_loop(self):
