@@ -41,8 +41,8 @@ class SortieModal(discord.ui.Modal, title="Proposer une sortie / activité"):
             if not salon_pub or not role:
                 return await interaction.response.send_message("❌ Configuration invalide.", ephemeral=True)
 
-            # Ping visible pour notification
-            await salon_pub.send(role.mention)
+            # Ping visible et récupération du message ping
+            ping_msg = await salon_pub.send(role.mention)
 
             # Création de la catégorie privée
             slug = self.jour.value.replace(' ', '-')
@@ -59,22 +59,19 @@ class SortieModal(discord.ui.Modal, title="Proposer une sortie / activité"):
             txt = await guild.create_text_channel("discussion-sortie", category=category)
             await guild.create_voice_channel("vocal-sortie", category=category)
 
-            # Vue de gestion (quitter + fermer) dans le salon privé
-            # On récupère le message public après envoi
-            join_view = ParticiperSortieView(category)
-            embed = discord.Embed(
-                title="📢 Nouvelle sortie proposée !",
-                description=(
-                    f"**Date :** {self.jour.value}\n"
-                    f"**Lieu :** {self.lieu.value}\n"
-                    f"**Activité :** {self.activite.value}"
-                ) + (f"\n\n{self.details.value}" if self.details.value else ""),
-                color=discord.Color.green()
-            )
+            # Envoi du message public embed + participation
+            desc = (
+                f"**Date :** {self.jour.value}\n"
+                f"**Lieu :** {self.lieu.value}\n"
+                f"**Activité :** {self.activite.value}"
+            ) + (f"\n\n{self.details.value}" if self.details.value else "")
+            embed = discord.Embed(title="📢 Nouvelle sortie proposée !", description=desc, color=discord.Color.green())
             embed.set_footer(text=f"Proposée par {self.auteur.display_name}")
+            join_view = ParticiperSortieView(category)
             public_msg = await salon_pub.send(embed=embed, view=join_view)
 
-            gestion_view = SortieGestionView(category, self.auteur, role_staff, public_msg)
+            # Vue de gestion dans le salon privé (quitter + fermer), avec références messages à supprimer
+            gestion_view = SortieGestionView(category, self.auteur, role_staff, public_msg, ping_msg)
             await txt.send(f"🔔 {self.auteur.mention}, ta sortie est ici !", view=gestion_view)
 
             await interaction.response.send_message("✅ Sortie proposée !", ephemeral=True)
@@ -100,12 +97,13 @@ class ParticiperSortieView(discord.ui.View):
         await interaction.response.send_message("✅ Tu as rejoint la sortie !", ephemeral=True)
 
 class SortieGestionView(discord.ui.View):
-    def __init__(self, category, auteur, staff_role=None, public_msg: discord.Message = None):
+    def __init__(self, category, auteur, staff_role=None, public_msg: discord.Message = None, ping_msg: discord.Message = None):
         super().__init__(timeout=None)
         self.category = category
         self.auteur = auteur
         self.staff_role = staff_role
         self.public_msg = public_msg
+        self.ping_msg = ping_msg
 
     @discord.ui.button(label="Finalement je ne serai pas là ❌", style=discord.ButtonStyle.danger)
     async def quitter(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -136,9 +134,11 @@ class SortieGestionView(discord.ui.View):
             for ch in list(self.category.channels):
                 await ch.delete()
             await self.category.delete()
-            # Supprimer le message public
+            # Supprimer le message public et le ping
             if self.public_msg:
                 await self.public_msg.delete()
+            if self.ping_msg:
+                await self.ping_msg.delete()
             await interaction.response.send_message("✅ Sortie fermée.", ephemeral=True)
         except Exception as e:
             await log_erreur(interaction.client, interaction.guild, f"SortieGestionView: {e}")
