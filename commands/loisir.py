@@ -1,8 +1,6 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-import datetime
-import asyncio
 from utils.utils import (
     charger_config,
     log_erreur,
@@ -17,7 +15,7 @@ async def check_verified(interaction: discord.Interaction) -> bool:
     raise app_commands.CheckFailure("Commande réservée aux membres vérifiés.")
 
 class SortieModal(discord.ui.Modal, title="Proposer une sortie / activité"):
-    def __init__(self, bot, auteur):
+    def __init__(self, bot, auteur: discord.Member):
         super().__init__()
         self.bot = bot
         self.auteur = auteur
@@ -54,18 +52,22 @@ class SortieModal(discord.ui.Modal, title="Proposer une sortie / activité"):
                     "❌ Salon ou rôle pour la sortie non défini par l’admin.", ephemeral=True
                 )
 
-            salon = interaction.guild.get_channel(int(salon_id))
-            role = interaction.guild.get_role(int(role_id))
-            if not salon or not role:
+            guild = interaction.guild
+            salon_pub = guild.get_channel(int(salon_id))
+            role = guild.get_role(int(role_id))
+            if not salon_pub or not role:
                 return await interaction.response.send_message(
                     "❌ Configuration invalide.", ephemeral=True
                 )
 
-            # On construit la description avec le ping du rôle
-            description = f"{role.mention}\n**Date :** {self.jour.value}\n**Lieu :** {self.lieu.value}\n**Activité :** {self.activite.value}"
+            # Embed public
+            description = (
+                f"**Date :** {self.jour.value}\n"
+                f"**Lieu :** {self.lieu.value}\n"
+                f"**Activité :** {self.activite.value}"
+            )
             if self.details.value:
                 description += f"\n\n{self.details.value}"
-
             embed = discord.Embed(
                 title="📢 Nouvelle sortie proposée !",
                 description=description,
@@ -76,80 +78,49 @@ class SortieModal(discord.ui.Modal, title="Proposer une sortie / activité"):
                 icon_url=self.auteur.avatar.url if self.auteur.avatar else None
             )
 
-            view = ParticiperSortieView(self.bot, self.jour.value, self.auteur)
-            await salon.send(embed=embed, view=view)
+            # Création immédiate de la catégorie privée
+            safe_name = f"sortie-{self.jour.value.replace(' ', '-')}-{self.auteur.id}".lower()
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                self.auteur: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            }
+            category = await guild.create_category(safe_name, overwrites=overwrites)
+            await guild.create_text_channel("discussion-sortie", category=category)
+            await guild.create_voice_channel("vocal-sortie", category=category)
+
+            # Message public avec le bouton participation
+            view = ParticiperSortieView(self.bot, category)
+            await salon_pub.send(content=role.mention, embed=embed, view=view)
+
             await interaction.response.send_message(
-                "✅ Ta sortie a été proposée avec succès !", ephemeral=True
+                "✅ Sortie proposée et espace privé créé !", ephemeral=True
             )
 
         except Exception as e:
             await interaction.response.send_message(
                 "❌ Erreur lors de la création de la sortie.", ephemeral=True
             )
-            await log_erreur(
-                self.bot, interaction.guild, f"SortieModal on_submit : {e}"
-            )
+            await log_erreur(self.bot, interaction.guild, f"SortieModal on_submit : {e}")
 
 class ParticiperSortieView(discord.ui.View):
-    def __init__(self, bot, date_sortie: str, auteur: discord.Member):
+    def __init__(self, bot, category: discord.CategoryChannel):
         super().__init__(timeout=None)
         self.bot = bot
-        self.date_sortie = date_sortie
-        self.auteur = auteur
-        self.participants = set()
+        self.category = category
 
     @discord.ui.button(label="Je suis chaud(e) 🔥", style=discord.ButtonStyle.success)
-    async def chaud_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def chaud(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            if interaction.user.id in self.participants:
-                return await interaction.response.send_message(
-                    "ℹ️ Tu es déjà inscrit à cette sortie.", ephemeral=True
-                )
-
-            self.participants.add(interaction.user.id)
-            guild = interaction.guild
-
-            # Préparer les permissions pour créer la catégorie privée
-            overwrites = {
-                guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                self.auteur: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-                interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-            }
-            for uid in self.participants:
-                user = guild.get_member(uid)
-                if user:
-                    overwrites[user] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-
-            category = await guild.create_category(
-                f"sortie du {self.date_sortie}", overwrites=overwrites
-            )
-            salon_texte = await guild.create_text_channel("discussion-sortie", category=category)
-            salon_vocal = await guild.create_voice_channel("vocal-sortie", category=category)
-
-            await salon_texte.send(
-                f"👋 Hello {interaction.user.mention} ! Explique un peu plus ton idée si tu veux :"
-            )
-            await salon_texte.send(view=SupprimerSortieView(category, self.auteur))
-
-            # Supression auto après 24h
-            now = datetime.datetime.utcnow()
-            sortie_datetime = now + datetime.timedelta(hours=24)
-            await asyncio.sleep((sortie_datetime - now).total_seconds())
-            try:
-                for c in category.channels:
-                    await c.delete()
-                await category.delete()
-            except Exception:
-                pass
-
+            user = interaction.user
+            # On donne l'accès à l'utilisateur dans la catégorie
+            await self.category.set_permissions(user, read_messages=True, send_messages=True)
             await interaction.response.send_message(
-                "✅ Tu as rejoint la sortie ! Un espace privé a été créé.", ephemeral=True
+                "✅ Tu as maintenant accès à l'espace privé !", ephemeral=True
             )
-
         except Exception as e:
             await log_erreur(self.bot, interaction.guild, f"ParticiperSortieView: {e}")
             await interaction.response.send_message(
-                "❌ Erreur lors de la création de l’espace privé.", ephemeral=True
+                "❌ Erreur lors de l'accès à l'espace privé.", ephemeral=True
             )
 
 class SupprimerSortieView(discord.ui.View):
@@ -159,22 +130,18 @@ class SupprimerSortieView(discord.ui.View):
         self.auteur = auteur
 
     @discord.ui.button(label="Sortie passée ✅", style=discord.ButtonStyle.danger)
-    async def supprimer_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def supprimer(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user != self.auteur:
             return await interaction.response.send_message(
-                "❌ Seul l’auteur de la sortie peut la supprimer.", ephemeral=True
+                "❌ Seul l’auteur peut supprimer cette sortie.", ephemeral=True
             )
         try:
-            for channel in self.category.channels:
+            for channel in list(self.category.channels):
                 await channel.delete()
             await self.category.delete()
-            await interaction.response.send_message(
-                "✅ Sortie supprimée.", ephemeral=True
-            )
+            await interaction.response.send_message("✅ Sortie supprimée !", ephemeral=True)
         except Exception as e:
-            await log_erreur(
-                interaction.client, interaction.guild, f"SupprimerSortieView: {e}"
-            )
+            await log_erreur(self.bot, interaction.guild, f"SupprimerSortieView: {e}")
             await interaction.response.send_message(
                 "❌ Erreur lors de la suppression.", ephemeral=True
             )
@@ -186,8 +153,7 @@ class LoisirCommands(commands.Cog):
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, app_commands.CheckFailure):
             await interaction.response.send_message(
-                "❌ Vous n'avez pas accès à cette commande. Rapprochez-vous du staff.",
-                ephemeral=True
+                "❌ Vous n'avez pas accès à cette commande. Contacte le staff.", ephemeral=True
             )
         else:
             await log_erreur(self.bot, interaction.guild, f"LoisirCommands error: {error}")
@@ -198,7 +164,7 @@ class LoisirCommands(commands.Cog):
     async def proposer_sortie(self, interaction: discord.Interaction):
         if not salon_est_autorise("proposer_sortie", interaction.channel_id, interaction.user):
             return await interaction.response.send_message(
-                "❌ Commande non autorisée dans ce salon.", ephemeral=True
+                "❌ Commande non autorisée ici.", ephemeral=True
             )
         try:
             await interaction.response.send_modal(SortieModal(self.bot, interaction.user))
