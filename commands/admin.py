@@ -54,6 +54,7 @@ class AdminCommands(commands.Cog):
         definir_redirection(redirection_type, salon.id)
         await interaction.response.send_message(f"✅ Redirection `{redirection_type}` → {salon.mention}", ephemeral=True)
 
+
     @app_commands.command(name="definir_config", description="Définir une option de configuration générique.")
     @app_commands.default_permissions(administrator=True)
     async def definir_config(self, interaction: discord.Interaction, option: str, valeur: str):
@@ -61,6 +62,7 @@ class AdminCommands(commands.Cog):
             return await interaction.response.send_message("❌ Vous devez être administrateur.", ephemeral=True)
         definir_option_config(option, valeur)
         await interaction.response.send_message(f"✅ Option `{option}` définie à `{valeur}`", ephemeral=True)
+
 
     @app_commands.command(name="definir_log_erreurs", description="Définit le salon de logs d’erreurs techniques.")
     @app_commands.default_permissions(administrator=True)
@@ -71,6 +73,7 @@ class AdminCommands(commands.Cog):
         config["log_erreurs_channel"] = str(salon.id)
         sauvegarder_config(config)
         await interaction.response.send_message(f"✅ Salon de logs défini : {salon.mention}", ephemeral=True)
+
 
     @app_commands.command(name="creer_role", description="Crée un rôle s’il n’existe pas déjà.")
     @app_commands.default_permissions(administrator=True)
@@ -84,6 +87,7 @@ class AdminCommands(commands.Cog):
             await log_erreur(self.bot, interaction.guild, f"creer_role\n{e}")
             await interaction.response.send_message("❌ Erreur lors de la création du rôle.", ephemeral=True)
 
+
     @app_commands.command(name="creer_categorie", description="Crée une catégorie si elle n’existe pas déjà.")
     @app_commands.default_permissions(administrator=True)
     async def creer_categorie(self, interaction: discord.Interaction, nom_de_categorie: str):
@@ -95,6 +99,7 @@ class AdminCommands(commands.Cog):
         except Exception as e:
             await log_erreur(self.bot, interaction.guild, f"creer_categorie\n{e}")
             await interaction.response.send_message("❌ Erreur lors de la création de la catégorie.", ephemeral=True)
+
 
     @app_commands.command(
         name="creer_categorie_privee",
@@ -125,6 +130,7 @@ class AdminCommands(commands.Cog):
                 ephemeral=True
             )
 
+
     @app_commands.command(name="creer_salon", description="Crée un salon texte ou vocal dans une catégorie existante.")
     @app_commands.describe(nom_salon="Nom du nouveau salon", type_salon="Type de salon : texte ou vocal", categorie="Sélectionne la catégorie existante")
     @app_commands.default_permissions(administrator=True)
@@ -143,6 +149,7 @@ class AdminCommands(commands.Cog):
             await log_erreur(self.bot, interaction.guild, f"creer_salon: {e}")
             await interaction.response.send_message("❌ Erreur lors de la création du salon.", ephemeral=True)
 
+
     @app_commands.command(name="definir_role_aide", description="Définit le rôle ping pour aider les étudiants.")
     @app_commands.default_permissions(administrator=True)
     async def definir_role_aide(self, interaction: discord.Interaction, role: discord.Role):
@@ -150,6 +157,7 @@ class AdminCommands(commands.Cog):
             return await interaction.response.send_message("❌ Vous devez être administrateur.", ephemeral=True)
         definir_option_config("role_aide", str(role.id))
         await interaction.response.send_message(f"✅ Rôle d’aide défini : {role.mention}", ephemeral=True)
+  
 
     @app_commands.command(name="envoyer_message", description="Envoie un message formaté dans un salon via modal.")
     @app_commands.default_permissions(administrator=True)
@@ -173,6 +181,7 @@ class AdminCommands(commands.Cog):
                     await modal_interaction.followup.send("❌ Erreur lors de l’envoi.", ephemeral=True)
         await interaction.response.send_modal(Modal())
 
+
     @app_commands.command(name="definir_journal_burnout", description="Définit le salon réservé aux signalements de burnout.")
     @app_commands.default_permissions(administrator=True)
     async def definir_journal_burnout(self, interaction: discord.Interaction, salon: discord.TextChannel):
@@ -182,6 +191,7 @@ class AdminCommands(commands.Cog):
         config["journal_burnout_channel"] = str(salon.id)
         sauvegarder_config(config)
         await interaction.response.send_message(f"✅ Le salon pour les signalements de burnout a été défini : {salon.mention}", ephemeral=True)
+
 
     @app_commands.command(name="definir_role_utilisateur", description="Définit le rôle qui permet d'accéder aux commandes utilisateurs et support.")
     @app_commands.default_permissions(administrator=True)
@@ -193,6 +203,7 @@ class AdminCommands(commands.Cog):
         sauvegarder_config(config)
         await interaction.response.send_message(f"✅ Rôle d'accès utilisateur défini : {role.mention}", ephemeral=True)
 
+
     @app_commands.command(name="definir_permission", description="Définit la permission d'accès pour une commande admin.")
     @app_commands.default_permissions(administrator=True)
     async def definir_permission(self, interaction: discord.Interaction, commande: str, role: discord.Role):
@@ -203,6 +214,7 @@ class AdminCommands(commands.Cog):
         permissions[commande] = current
         sauvegarder_permissions(permissions)
         await interaction.response.send_message(f"✅ Permission définie pour la commande `{commande}` avec le rôle {role.mention}.", ephemeral=True)
+
 
     @definir_permission.autocomplete("commande")
     async def autocomplete_command_permission(self, interaction: discord.Interaction, current: str):
@@ -235,6 +247,7 @@ class AdminCommands(commands.Cog):
                         role_mentions.append(role.mention)
                 embed.add_field(name=cmd, value=", ".join(role_mentions) if role_mentions else "Aucun rôle", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
+  
 
     @app_commands.command(name="creer_reaction_role", description="Crée ou ajoute un reaction role (simple et fiable)")
     @app_commands.default_permissions(administrator=True)
@@ -289,6 +302,7 @@ class AdminCommands(commands.Cog):
         await interaction.response.send_modal(ReactionRoleModal())
 
 
+
     @app_commands.command(name="clear_messages", description="Supprime les N derniers messages du canal.")
     @app_commands.default_permissions(administrator=True)
     async def clear_messages(self, interaction: discord.Interaction, nombre: int):
@@ -299,6 +313,7 @@ class AdminCommands(commands.Cog):
         deleted = await interaction.channel.purge(limit=nombre)
         await interaction.response.send_message(f"✅ {len(deleted)} messages supprimés.", ephemeral=True)
 
+
     @app_commands.command(name="definir_annonce", description="Définit le canal réservé aux annonces importantes.")
     @app_commands.default_permissions(administrator=True)
     async def definir_annonce(self, interaction: discord.Interaction, salon: discord.TextChannel):
@@ -308,6 +323,7 @@ class AdminCommands(commands.Cog):
         config["annonce_channel"] = str(salon.id)
         sauvegarder_config(config)
         await interaction.response.send_message(f"✅ Le canal d'annonces a été défini : {salon.mention}", ephemeral=True)
+
 
     @app_commands.command(name="creer_promo", description="Crée une promo en générant un rôle et une catégorie privée dédiée.")
     @app_commands.default_permissions(administrator=True)
@@ -327,6 +343,7 @@ class AdminCommands(commands.Cog):
         await interaction.guild.create_text_channel("ressources", category=category)
         await interaction.response.send_message(f"✅ Promo '{nom_promo}' créée avec rôle et catégorie privée.", ephemeral=True)
 
+
     @app_commands.command(name="assigner_eleve", description="Assigne un élève à une promo en lui attribuant le rôle correspondant.")
     @app_commands.default_permissions(administrator=True)
     async def assigner_eleve(self, interaction: discord.Interaction, utilisateur: discord.Member, nom_promo: str):
@@ -340,6 +357,7 @@ class AdminCommands(commands.Cog):
             await utilisateur.add_roles(promo_role)
         await interaction.response.send_message(f"✅ {utilisateur.mention} a été ajouté(e) à la promo {nom_promo}.", ephemeral=True)
 
+
     @app_commands.command(name="signaler_inactif", description="Signale un élève inactif en lui attribuant le rôle 'Inactif'.")
     @app_commands.default_permissions(administrator=True)
     async def signaler_inactif(self, interaction: discord.Interaction, utilisateur: discord.Member):
@@ -351,6 +369,7 @@ class AdminCommands(commands.Cog):
         if role_inactif not in utilisateur.roles:
             await utilisateur.add_roles(role_inactif)
         await interaction.response.send_message(f"✅ {utilisateur.mention} a été signalé(e) comme inactif(ve).", ephemeral=True)
+
 
     @app_commands.command(name="creer_binome", description="Crée une catégorie privée partagée pour deux élèves.")
     @app_commands.default_permissions(administrator=True)
@@ -368,6 +387,7 @@ class AdminCommands(commands.Cog):
         await interaction.guild.create_voice_channel("voix", category=category)
         await interaction.response.send_message(f"✅ Catégorie créée pour {utilisateur1.mention} et {utilisateur2.mention}.", ephemeral=True)
 
+
     @app_commands.command(name="statistiques_serveur", description="Affiche quelques statistiques du serveur.")
     @app_commands.default_permissions(administrator=True)
     async def statistiques_serveur(self, interaction: discord.Interaction):
@@ -382,6 +402,7 @@ class AdminCommands(commands.Cog):
         embed.add_field(name="Salons", value=str(total_channels), inline=True)
         embed.add_field(name="Rôles", value=str(total_roles), inline=True)
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
     @app_commands.command(name="generer_rapport_hebdo", description="Génère un rapport hebdomadaire sur le serveur.")
     @app_commands.default_permissions(administrator=True)
@@ -400,6 +421,7 @@ class AdminCommands(commands.Cog):
         embed.add_field(name="Nombre de rôles", value=str(len(guild.roles)), inline=True)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+
     @app_commands.command(name="lock_salon", description="Verrouille un salon pour un temps donné (en minutes).")
     @app_commands.default_permissions(administrator=True)
     async def lock_salon(self, interaction: discord.Interaction, salon: discord.TextChannel, duree: int):
@@ -414,6 +436,7 @@ class AdminCommands(commands.Cog):
         await salon.set_permissions(interaction.guild.default_role, overwrite=overwrite)
         await interaction.followup.send(f"🔓 Salon {salon.mention} déverrouillé.", ephemeral=True)
 
+
     @app_commands.command(name="purger_role", description="Retire un rôle de tous les membres du serveur.")
     @app_commands.default_permissions(administrator=True)
     async def purger_role(self, interaction: discord.Interaction, role: discord.Role):
@@ -425,6 +448,7 @@ class AdminCommands(commands.Cog):
             compteur += 1
         await interaction.response.send_message(f"✅ Le rôle {role.mention} a été retiré de {compteur} membres.", ephemeral=True)
 
+
     @app_commands.command(name="activer_mode_examen", description="Active le mode examen en cachant certains salons.")
     @app_commands.default_permissions(administrator=True)
     async def activer_mode_examen(self, interaction: discord.Interaction, salons: str):
@@ -435,6 +459,7 @@ class AdminCommands(commands.Cog):
             if str(channel.id) not in salons_a_garder and channel.name not in salons_a_garder:
                 await channel.set_permissions(interaction.guild.default_role, read_messages=False)
         await interaction.response.send_message("✅ Mode examen activé.", ephemeral=True)
+   
 
     @app_commands.command(name="desactiver_mode_examen", description="Désactive le mode examen et rétablit l'accès aux salons.")
     @app_commands.default_permissions(administrator=True)
@@ -445,6 +470,7 @@ class AdminCommands(commands.Cog):
             await channel.set_permissions(interaction.guild.default_role, read_messages=True)
         await interaction.response.send_message("✅ Mode examen désactivé.", ephemeral=True)
 
+
     @app_commands.command(name="maintenance_on", description="Active le mode maintenance sur le serveur.")
     @app_commands.default_permissions(administrator=True)
     async def maintenance_on(self, interaction: discord.Interaction):
@@ -454,6 +480,7 @@ class AdminCommands(commands.Cog):
         config["maintenance"] = True
         sauvegarder_config(config)
         await interaction.response.send_message("✅ Mode maintenance activé. Seuls les admins pourront utiliser le bot.", ephemeral=True)
+ 
 
     @app_commands.command(name="maintenance_off", description="Désactive le mode maintenance sur le serveur.")
     @app_commands.default_permissions(administrator=True)
@@ -464,6 +491,7 @@ class AdminCommands(commands.Cog):
         config["maintenance"] = False
         sauvegarder_config(config)
         await interaction.response.send_message("✅ Mode maintenance désactivé.", ephemeral=True)
+
 
     @app_commands.command(name="forcer_validation", description="Envoie un message de validation des règles à un utilisateur.")
     @app_commands.default_permissions(administrator=True)
@@ -477,6 +505,7 @@ class AdminCommands(commands.Cog):
         )
         view = self.ValidationView(utilisateur)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
 
     class ValidationView(discord.ui.View):
         def __init__(self, utilisateur: discord.Member):
@@ -509,6 +538,7 @@ class AdminCommands(commands.Cog):
         sauvegarder_config(config)
         await interaction.response.send_message(f"✅ Salon des sorties défini : {salon.mention}", ephemeral=True)
 
+
     # ───── Définir le rôle à ping pour la commande /proposer_sortie ─────
     @app_commands.command(name="definir_role_sortie", description="Définit le rôle qui sera ping pour les propositions de sorties.")
     @app_commands.default_permissions(administrator=True)
@@ -519,6 +549,124 @@ class AdminCommands(commands.Cog):
         config["role_sortie"] = str(role.id)
         sauvegarder_config(config)
         await interaction.response.send_message(f"✅ Rôle pour les sorties défini : {role.mention}", ephemeral=True)
+  
+
+
+    # ────────────────────────────────────────────────
+    # 🔐 Gestion des permissions dynamiques
+    # ────────────────────────────────────────────────
+
+    @app_commands.command(
+        name="autoriser_commande",
+        description="Autorise une commande ou une catégorie à un rôle ou utilisateur."
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def autoriser_commande(
+        self,
+        interaction: discord.Interaction,
+        cible: discord.Role | discord.Member,
+        nom: str,
+        est_categorie: bool = False
+    ):
+        """
+        /autoriser_commande <@Role|@User> <commande> [est_categorie:bool]
+        """
+        permissions = charger_permissions()
+        key = nom if est_categorie else nom.lower()
+        current = permissions.get(key, [])
+        id_str = str(cible.id)
+
+        if id_str not in current:
+            current.append(id_str)
+            permissions[key] = current
+            sauvegarder_permissions(permissions)
+
+            # Appliquer immédiatement les nouvelles permissions
+            await self.bot.apply_command_permissions()
+
+            await interaction.response.send_message(
+                f"✅ Accès `{key}` accordé à {cible.mention}.",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                f"ℹ️ {cible.mention} a déjà accès à `{key}`.",
+                ephemeral=True
+            )
+
+    @app_commands.command(
+        name="retirer_commande",
+        description="Retire l'accès à une commande ou catégorie pour un rôle ou utilisateur."
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def retirer_commande(
+        self,
+        interaction: discord.Interaction,
+        cible: discord.Role | discord.Member,
+        nom: str,
+        est_categorie: bool = False
+    ):
+        """
+        /retirer_commande <@Role|@User> <commande> [est_categorie:bool]
+        """
+        permissions = charger_permissions()
+        key = nom if est_categorie else nom.lower()
+        id_str = str(cible.id)
+
+        if key in permissions and id_str in permissions[key]:
+            permissions[key].remove(id_str)
+            if not permissions[key]:
+                del permissions[key]
+            sauvegarder_permissions(permissions)
+
+            # Appliquer immédiatement les changements
+            await self.bot.apply_command_permissions()
+
+            await interaction.response.send_message(
+                f"✅ Accès `{key}` retiré pour {cible.mention}.",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                f"ℹ️ {cible.mention} n’a pas d’accès à `{key}`.",
+                ephemeral=True
+            )
+
+    @app_commands.command(
+        name="voir_permissions",
+        description="Affiche les commandes ou catégories autorisées pour un rôle ou membre."
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def voir_permissions(
+        self,
+        interaction: discord.Interaction,
+        cible: discord.Role | discord.Member
+    ):
+        """
+        /voir_permissions <@Role|@User>
+        """
+        permissions = charger_permissions()
+        id_str = str(cible.id)
+        associees = [k for k, v in permissions.items() if id_str in v]
+
+        embed = discord.Embed(
+            title=(
+                f"Permissions de "
+                f"{cible.name if isinstance(cible, discord.Role) else cible.display_name}"
+            ),
+            description="🔐 Liste des accès",
+            color=discord.Color.green()
+        )
+
+        if not associees:
+            embed.description = "Aucune permission enregistrée."
+        else:
+            for key in associees:
+                embed.add_field(name="✅ Accès à :", value=key, inline=False)
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 
 
 async def setup_admin_commands(bot: commands.Bot):

@@ -53,6 +53,7 @@ class Checkin(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+
     @app_commands.command(name="checkin", description="Note ton humeur du jour (0 à 10)")
     async def checkin(self, interaction: discord.Interaction):
         if not await is_verified_user(interaction.user):
@@ -101,6 +102,7 @@ class Checkin(commands.Cog):
         embed.add_field(name="📅 Moyenne 30 jours", value=str(mj_30), inline=True)
         embed.set_footer(text="Source : /checkin")
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 async def setup(bot):
     await bot.add_cog(Checkin(bot))
