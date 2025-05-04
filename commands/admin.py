@@ -552,30 +552,24 @@ class AdminCommands(commands.Cog):
   
 
 
-     # ────────────────────────────────────────────────
+    # ────────────────────────────────────────────────
     # 🔐 Gestion des permissions dynamiques (avec autocomplete)
     # ────────────────────────────────────────────────
 
     @app_commands.command(
         name="autoriser_commande",
-        description="Autorise une commande ou une catégorie à un rôle ou utilisateur."
+        description="Autorise une commande ou catégorie à un rôle ou utilisateur."
     )
     @app_commands.default_permissions(administrator=True)
-    @app_commands.autocomplete(nom="autocomplete_permission_key")
+    @app_commands.autocomplete("nom")
     async def autoriser_commande(
         self,
         interaction: discord.Interaction,
         cible: discord.Role | discord.Member,
         nom: str
     ):
-        """
-        /autoriser_commande <@Role|@User> <commande|catégorie>
-        """
-        # Chargement JSON
         permissions = charger_permissions()
-        key = nom  # nom est soit un command.name, soit une catégorie
-
-        # Ajout si pas déjà dans la liste
+        key = nom
         current = permissions.get(key, [])
         id_str = str(cible.id)
         if id_str in current:
@@ -583,12 +577,11 @@ class AdminCommands(commands.Cog):
                 f"ℹ️ {cible.mention} a déjà accès à `{key}`.",
                 ephemeral=True
             )
-
         current.append(id_str)
         permissions[key] = current
         sauvegarder_permissions(permissions)
 
-        # On applique immédiatement
+        # Appliquer immédiatement
         await self.bot.apply_command_permissions()
 
         await interaction.response.send_message(
@@ -601,31 +594,24 @@ class AdminCommands(commands.Cog):
         description="Retire l'accès à une commande ou catégorie pour un rôle ou utilisateur."
     )
     @app_commands.default_permissions(administrator=True)
-    @app_commands.autocomplete(nom="autocomplete_permission_key")
+    @app_commands.autocomplete("nom")
     async def retirer_commande(
         self,
         interaction: discord.Interaction,
         cible: discord.Role | discord.Member,
         nom: str
     ):
-        """
-        /retirer_commande <@Role|@User> <commande|catégorie>
-        """
         permissions = charger_permissions()
         key = nom
         id_str = str(cible.id)
-
         if key not in permissions or id_str not in permissions[key]:
             return await interaction.response.send_message(
                 f"ℹ️ {cible.mention} n’a pas d’accès à `{key}`.",
                 ephemeral=True
             )
-
         permissions[key].remove(id_str)
         if not permissions[key]:
             del permissions[key]
-        else:
-            permissions[key] = permissions[key]
         sauvegarder_permissions(permissions)
 
         await self.bot.apply_command_permissions()
@@ -645,9 +631,6 @@ class AdminCommands(commands.Cog):
         interaction: discord.Interaction,
         cible: discord.Role | discord.Member
     ):
-        """
-        /voir_permissions <@Role|@User>
-        """
         permissions = charger_permissions()
         id_str = str(cible.id)
         associees = [k for k, v in permissions.items() if id_str in v]
@@ -660,7 +643,6 @@ class AdminCommands(commands.Cog):
             description="🔐 Liste des accès",
             color=discord.Color.green()
         )
-
         if not associees:
             embed.description = "Aucune permission enregistrée."
         else:
@@ -669,26 +651,28 @@ class AdminCommands(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @autoriser_commande.autocomplete("nom")
+    @retirer_commande.autocomplete("nom")
     async def autocomplete_permission_key(
         self,
         interaction: discord.Interaction,
         current: str
     ) -> list[app_commands.Choice[str]]:
         """
-        Propose en auto‐complétion la liste de toutes les commandes et catégories.
+        Propose la liste de toutes les commandes et catégories pour éviter les erreurs de frappe.
         """
-        # Toutes les commandes slash
+        # 1) toutes les commandes slash
         all_cmds = [cmd.name for cmd in self.bot.tree.get_commands()]
-        # Toutes les catégories (key) dans ton JSON
+        # 2) toutes les clés existantes de permissions.json (catégories)
         perms = charger_permissions()
         all_cats = list(perms.keys())
-        # Fusion et filtrage
+        # 3) fusion et filtrage
         choices = all_cmds + all_cats
         return [
             app_commands.Choice(name=ch, value=ch)
-            for ch in choices
-            if current.lower() in ch.lower()
+            for ch in choices if current.lower() in ch.lower()
         ][:25]
+
 
 
 
