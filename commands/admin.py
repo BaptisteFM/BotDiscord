@@ -552,8 +552,8 @@ class AdminCommands(commands.Cog):
   
 
 
-    # ────────────────────────────────────────────────
-    # 🔐 Gestion des permissions dynamiques
+     # ────────────────────────────────────────────────
+    # 🔐 Gestion des permissions dynamiques (avec autocomplete)
     # ────────────────────────────────────────────────
 
     @app_commands.command(
@@ -561,76 +561,79 @@ class AdminCommands(commands.Cog):
         description="Autorise une commande ou une catégorie à un rôle ou utilisateur."
     )
     @app_commands.default_permissions(administrator=True)
+    @app_commands.autocomplete(nom="autocomplete_permission_key")
     async def autoriser_commande(
         self,
         interaction: discord.Interaction,
         cible: discord.Role | discord.Member,
-        nom: str,
-        est_categorie: bool = False
+        nom: str
     ):
         """
-        /autoriser_commande <@Role|@User> <commande> [est_categorie:bool]
+        /autoriser_commande <@Role|@User> <commande|catégorie>
         """
+        # Chargement JSON
         permissions = charger_permissions()
-        key = nom if est_categorie else nom.lower()
+        key = nom  # nom est soit un command.name, soit une catégorie
+
+        # Ajout si pas déjà dans la liste
         current = permissions.get(key, [])
         id_str = str(cible.id)
-
-        if id_str not in current:
-            current.append(id_str)
-            permissions[key] = current
-            sauvegarder_permissions(permissions)
-
-            # Appliquer immédiatement les nouvelles permissions
-            await self.bot.apply_command_permissions()
-
-            await interaction.response.send_message(
-                f"✅ Accès `{key}` accordé à {cible.mention}.",
-                ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(
+        if id_str in current:
+            return await interaction.response.send_message(
                 f"ℹ️ {cible.mention} a déjà accès à `{key}`.",
                 ephemeral=True
             )
+
+        current.append(id_str)
+        permissions[key] = current
+        sauvegarder_permissions(permissions)
+
+        # On applique immédiatement
+        await self.bot.apply_command_permissions()
+
+        await interaction.response.send_message(
+            f"✅ Accès `{key}` accordé à {cible.mention}.",
+            ephemeral=True
+        )
 
     @app_commands.command(
         name="retirer_commande",
         description="Retire l'accès à une commande ou catégorie pour un rôle ou utilisateur."
     )
     @app_commands.default_permissions(administrator=True)
+    @app_commands.autocomplete(nom="autocomplete_permission_key")
     async def retirer_commande(
         self,
         interaction: discord.Interaction,
         cible: discord.Role | discord.Member,
-        nom: str,
-        est_categorie: bool = False
+        nom: str
     ):
         """
-        /retirer_commande <@Role|@User> <commande> [est_categorie:bool]
+        /retirer_commande <@Role|@User> <commande|catégorie>
         """
         permissions = charger_permissions()
-        key = nom if est_categorie else nom.lower()
+        key = nom
         id_str = str(cible.id)
 
-        if key in permissions and id_str in permissions[key]:
-            permissions[key].remove(id_str)
-            if not permissions[key]:
-                del permissions[key]
-            sauvegarder_permissions(permissions)
-
-            # Appliquer immédiatement les changements
-            await self.bot.apply_command_permissions()
-
-            await interaction.response.send_message(
-                f"✅ Accès `{key}` retiré pour {cible.mention}.",
-                ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(
+        if key not in permissions or id_str not in permissions[key]:
+            return await interaction.response.send_message(
                 f"ℹ️ {cible.mention} n’a pas d’accès à `{key}`.",
                 ephemeral=True
             )
+
+        permissions[key].remove(id_str)
+        if not permissions[key]:
+            del permissions[key]
+        else:
+            permissions[key] = permissions[key]
+        sauvegarder_permissions(permissions)
+
+        await self.bot.apply_command_permissions()
+
+        await interaction.response.send_message(
+            f"✅ Accès `{key}` retiré pour {cible.mention}.",
+            ephemeral=True
+        )
 
     @app_commands.command(
         name="voir_permissions",
@@ -666,6 +669,26 @@ class AdminCommands(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    async def autocomplete_permission_key(
+        self,
+        interaction: discord.Interaction,
+        current: str
+    ) -> list[app_commands.Choice[str]]:
+        """
+        Propose en auto‐complétion la liste de toutes les commandes et catégories.
+        """
+        # Toutes les commandes slash
+        all_cmds = [cmd.name for cmd in self.bot.tree.get_commands()]
+        # Toutes les catégories (key) dans ton JSON
+        perms = charger_permissions()
+        all_cats = list(perms.keys())
+        # Fusion et filtrage
+        choices = all_cmds + all_cats
+        return [
+            app_commands.Choice(name=ch, value=ch)
+            for ch in choices
+            if current.lower() in ch.lower()
+        ][:25]
 
 
 
