@@ -62,36 +62,27 @@ class MyBot(commands.Bot):
         except Exception as e:
             print(f"❌ Erreur lors de la synchronisation : {e}")
 
-        # Application des permissions après la synchronisation
+        # Application des permissions après la sync
         await self.apply_command_permissions()
 
     async def apply_command_permissions(self):
         """
-        1) Cache globalement toutes les commandes (default_member_permissions=0)
-        2) Charge permissions.json
-        3) Pour chaque guild et chaque commande, construit la liste d’overrides
-           (même vide) et appelle set_permissions → invisible si liste vide.
+        Pour chaque guild et chaque slash command :
+        1) on recharge permissions.json
+        2) on construit une liste d'AppCommandPermission (vide ou non)
+        3) on appelle set_permissions → vide = caché pour tous
         """
-        # 1) Masquer globalement toutes les commandes
-        for command in self.tree.get_commands():
-            await command.edit(
-                default_member_permissions=0,
-                dm_permission=False
-            )
-
-        # 2) Charger le JSON de permissions
         permissions_config = charger_permissions()  # { "commande": [id,...], "categorie": [id,...] }
 
-        # 3) Appliquer par guild
         for guild in self.guilds:
             for command in self.tree.get_commands(guild=guild):
-                # 3a) Choix de la clé : nom de la commande ou fallback catégorie
+                # ➊ Choix de la clé : nom de la commande ou fallback catégorie
                 allowed = permissions_config.get(command.name)
                 if allowed is None:
                     cat = getattr(command, "category", None)
                     allowed = permissions_config.get(cat, [])
 
-                # 3b) Construction de la liste d’AppCommandPermission
+                # ➋ Construction des overrides
                 perms: list[app_commands.AppCommandPermission] = []
                 for id_str in allowed:
                     id_int = int(id_str)
@@ -108,9 +99,8 @@ class MyBot(commands.Bot):
                             permission=True
                         ))
 
-                # 3c) Application des overrides (vide → caché pour tous)
+                # ➌ Application des overrides : si perms=[], la commande est cachée pour tous
                 await self.tree.set_permissions(command, guild=guild, permissions=perms)
-
 
 # ─── Instanciation et lancement du bot ─────────────────────────
 bot = MyBot()
