@@ -9,13 +9,13 @@ from keep_alive import keep_alive
 from utils.utils import charger_permissions, PERMISSIONS_PATH
 from discord import app_commands
 
-# ─── Préparation du dossier /data et du JSON de permissions ─────
+# ─── Préparation /data et JSON de permissions ───────────────────
 os.makedirs("/data", exist_ok=True)
 if not os.path.exists(PERMISSIONS_PATH):
     with open(PERMISSIONS_PATH, "w", encoding="utf-8") as f:
         json.dump({}, f, indent=4)
 
-# ─── Keep-alive et token ────────────────────────────────────────
+# ─── Keep-alive et chargement du token ──────────────────────────
 keep_alive()
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -31,7 +31,7 @@ class MyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
-        # 1) Charger tous tes Cogs habituels
+        # 1) Chargement de tous tes Cogs
         from commands.admin import setup_admin_commands
         from commands.utilisateur import setup_user_commands
         from commands.support import setup_support_commands
@@ -53,40 +53,44 @@ class MyBot(commands.Bot):
     async def on_ready(self):
         print(f"✅ Connecté en tant que {self.user} (ID : {self.user.id})")
 
-        # ─── Sync en scope guild pour réactivité immédiate ─────────────
+        # 2) Sync par-guilde pour que nos slash-commands soient disponibles
         for guild in self.guilds:
-            synced = await self.tree.sync(guild=guild)
-            print(f"🔄 {len(synced)} commandes synchronisées dans {guild.name}")
+            try:
+                synced = await self.tree.sync(guild=guild)
+                print(f"🔄 {len(synced)} commandes synchronisées dans {guild.name}")
+            except Exception as e:
+                print(f"❌ Erreur de sync pour {guild.name} : {e}")
 
-        # ─── Appliquer la whitelist stricte ───────────────────────────
+        # 3) Appliquer notre whitelist de commandes
         await self.apply_command_permissions()
 
     async def apply_command_permissions(self):
         """
         Pour chaque guild et chaque commande slash :
-        1) On masque la commande pour tout le monde (default_member_permissions=0)
-        2) On charge permissions.json
-        3) On reconstruit la liste d’AppCommandPermission pour les rôles/utilisateurs autorisés
-        4) On appelle set_permissions() — vide = invisible pour tous
+          1) cmd.edit(...) pour masquer la commande à tout le monde
+          2) Charger permissions.json
+          3) Construire la liste AppCommandPermission pour les rôles/users autorisés
+          4) tree.set_permissions(...) avec cette liste (vide = invisible)
         """
-        permissions_config = charger_permissions()  # ex: {"checkin": ["123"], "support": ["234"]}
+        permissions_config = charger_permissions()  # ex: {"checkin": ["123"], "support": ["456"]}
 
         for guild in self.guilds:
             for cmd in self.tree.get_commands(guild=guild):
-                # 1) Masquer la commande pour tout le monde
+                # 1) Masquer pour tout le monde
                 await cmd.edit(
                     guild=guild,
                     default_member_permissions=0,  # AUCUN droit → caché
                     dm_permission=False
                 )
 
-                # 2) Déterminer la clé à lookup (nom ou catégorie)
+                # 2) Lookup dans le JSON
                 allowed = permissions_config.get(cmd.name)
                 if allowed is None:
+                    # fallback sur la catégorie si tu as fait cmd.category = "support" par ex.
                     cat = getattr(cmd, "category", None)
                     allowed = permissions_config.get(cat, [])
 
-                # 3) Construire la liste d’AppCommandPermission
+                # 3) Construire les AppCommandPermission
                 perms: list[app_commands.AppCommandPermission] = []
                 for id_str in allowed:
                     id_int = int(id_str)
@@ -103,10 +107,10 @@ class MyBot(commands.Bot):
                             permission=True
                         ))
 
-                # 4) Appliquer — si perms est vide → commande invisible
+                # 4) Appliquer : liste vide = invisible pour tous
                 await self.tree.set_permissions(cmd, guild=guild, permissions=perms)
 
-# ─── Instanciation et lancement du bot ───────────────────────────
+# ─── Démarrage du bot ───────────────────────────────────────────
 bot = MyBot()
 
 if __name__ == "__main__":
