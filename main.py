@@ -3,115 +3,111 @@ import discord
 from discord.ext import commands
 import asyncio
 import os
-import json
 from dotenv import load_dotenv
 from keep_alive import keep_alive
-from utils.utils import charger_permissions, PERMISSIONS_PATH
-from discord import app_commands
+from utils.utils import charger_config
 
-# ─── Préparation /data et JSON de permissions ───────────────────
+# ───────────── Création du dossier /data si nécessaire ─────────────
 os.makedirs("/data", exist_ok=True)
-if not os.path.exists(PERMISSIONS_PATH):
-    with open(PERMISSIONS_PATH, "w", encoding="utf-8") as f:
-        json.dump({}, f, indent=4)
 
-# ─── Keep-alive et chargement du token ──────────────────────────
+# ───────────── Lancement du serveur keep-alive ─────────────
 keep_alive()
+
+# ───────────── Chargement des variables d’environnement ─────────────
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-# ─── Intents ────────────────────────────────────────────────────
+# ───────────── Création du bot avec intents ─────────────
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-class MyBot(commands.Bot):
-    def __init__(self):
-        super().__init__(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-    async def setup_hook(self):
-        # 1) Chargement de tous tes Cogs
+# ───────────── Gestion globale des erreurs ─────────────
+@bot.event
+async def on_error(event, *args, **kwargs):
+    try:
+        import traceback
+        error_info = traceback.format_exc()
+        print(f"[ERREUR GLOBALE] {error_info}")
+        config = charger_config()
+        log_channel_id = int(config.get("log_erreurs_channel", 0))
+        if not log_channel_id:
+            return
+        for guild in bot.guilds:
+            channel = guild.get_channel(log_channel_id)
+            if channel:
+                embed = discord.Embed(
+                    title="❌ Erreur globale détectée",
+                    description=f"```{error_info[:4000]}```",
+                    color=discord.Color.red()
+                )
+                await channel.send(embed=embed)
+    except Exception as e:
+        print(f"[ERREUR dans on_error] {e}")
+
+# ───────────── Bot prêt ─────────────
+@bot.event
+async def on_ready():
+    print(f"✅ Connecté en tant que {bot.user} (ID : {bot.user.id})")
+    try:
+        print("🔄 Synchronisation des commandes slash...")
+        synced = await bot.tree.sync()
+        print(f"✅ {len(synced)} commandes synchronisées avec succès.")
+    except Exception as e:
+        print(f"❌ Erreur lors de la synchronisation des commandes : {e}")
+
+# ───────────── Chargement des Cogs ─────────────
+async def load_cogs():
+    try:
+        print("🔧 Chargement des Cogs en cours...")
         from commands.admin import setup_admin_commands
         from commands.utilisateur import setup_user_commands
         from commands.support import setup_support_commands
         from commands.test_command import setup as setup_test
         from commands.events import setup as setup_events
-        from commands import whitelist, loisir, missions, reaction_roles, checkin
+        from commands import whitelist
+        from commands import loisir
+        from commands import missions
+        from commands import reaction_roles
+        from commands import checkin
 
-        await setup_test(self)
-        await setup_admin_commands(self)
-        await setup_user_commands(self)
-        await setup_support_commands(self)
-        await setup_events(self)
-        await whitelist.setup(self)
-        await loisir.setup(self)
-        await missions.setup(self)
-        await reaction_roles.setup(self)
-        await checkin.setup(self)
+        await setup_test(bot)
+        await setup_admin_commands(bot)
+        print("✅ AdminCommands chargé")
 
-    async def on_ready(self):
-        print(f"✅ Connecté en tant que {self.user} (ID : {self.user.id})")
+        await setup_user_commands(bot)
+        print("✅ UtilisateurCommands chargé")
 
-        # 2) Sync par-guilde pour que nos slash-commands soient disponibles
-        for guild in self.guilds:
-            try:
-                synced = await self.tree.sync(guild=guild)
-                print(f"🔄 {len(synced)} commandes synchronisées dans {guild.name}")
-            except Exception as e:
-                print(f"❌ Erreur de sync pour {guild.name} : {e}")
+        await setup_support_commands(bot)
+        print("✅ SupportCommands chargé")
 
-        # 3) Appliquer notre whitelist de commandes
-        await self.apply_command_permissions()
+        await setup_events(bot)
+        print("✅ Events chargé")
 
-    async def apply_command_permissions(self):
-        """
-        Pour chaque guild et chaque commande slash :
-          1) cmd.edit(...) pour masquer la commande à tout le monde
-          2) Charger permissions.json
-          3) Construire la liste AppCommandPermission pour les rôles/users autorisés
-          4) tree.set_permissions(...) avec cette liste (vide = invisible)
-        """
-        permissions_config = charger_permissions()  # ex: {"checkin": ["123"], "support": ["456"]}
+        await whitelist.setup(bot)
+        print("✅ Whitelist chargé")
 
-        for guild in self.guilds:
-            for cmd in self.tree.get_commands(guild=guild):
-                # 1) Masquer pour tout le monde
-                await cmd.edit(
-                    guild=guild,
-                    default_member_permissions=0,  # AUCUN droit → caché
-                    dm_permission=False
-                )
+        await loisir.setup(bot)
+        print("✅ LoisirCommands chargé")
 
-                # 2) Lookup dans le JSON
-                allowed = permissions_config.get(cmd.name)
-                if allowed is None:
-                    # fallback sur la catégorie si tu as fait cmd.category = "support" par ex.
-                    cat = getattr(cmd, "category", None)
-                    allowed = permissions_config.get(cat, [])
+        await missions.setup(bot)
+        print("✅ Missions chargé")
 
-                # 3) Construire les AppCommandPermission
-                perms: list[app_commands.AppCommandPermission] = []
-                for id_str in allowed:
-                    id_int = int(id_str)
-                    if guild.get_role(id_int) is not None:
-                        perms.append(app_commands.AppCommandPermission(
-                            id=id_int,
-                            type=app_commands.AppCommandPermissionType.role,
-                            permission=True
-                        ))
-                    else:
-                        perms.append(app_commands.AppCommandPermission(
-                            id=id_int,
-                            type=app_commands.AppCommandPermissionType.user,
-                            permission=True
-                        ))
+        await reaction_roles.setup(bot)
+        print("✅ ReactionRole chargé")
 
-                # 4) Appliquer : liste vide = invisible pour tous
-                await self.tree.set_permissions(cmd, guild=guild, permissions=perms)
+        await checkin.setup(bot)
+        print("✅ Checkin chargé")
+    except Exception as e:
+        print(f"❌ Erreur lors du chargement des Cogs : {e}")
 
-# ─── Démarrage du bot ───────────────────────────────────────────
-bot = MyBot()
-
+# ───────────── Lancement du bot ─────────────
 if __name__ == "__main__":
-    asyncio.run(bot.start(TOKEN))
+    async def main():
+        await load_cogs()
+        await bot.start(TOKEN)
+
+    asyncio.run(main())
