@@ -6,25 +6,21 @@ import os
 import json
 from dotenv import load_dotenv
 from keep_alive import keep_alive
-from utils.utils import charger_config, charger_permissions, PERMISSIONS_PATH
+from utils.utils import charger_permissions, PERMISSIONS_PATH
 from discord import app_commands
 
-# ─── Création du dossier /data si nécessaire ───────────────────
+# ─── Préparation du dossier /data et du JSON de permissions ─────
 os.makedirs("/data", exist_ok=True)
-
-# ─── Création du fichier permissions.json vide s’il n’existe pas ─
 if not os.path.exists(PERMISSIONS_PATH):
     with open(PERMISSIONS_PATH, "w", encoding="utf-8") as f:
         json.dump({}, f, indent=4)
 
-# ─── Lancement du serveur keep-alive ────────────────────────────
+# ─── Keep-alive et token ────────────────────────────────────────
 keep_alive()
-
-# ─── Chargement des variables d’environnement ──────────────────
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-# ─── Définition des intents ────────────────────────────────────
+# ─── Intents nécessaires ───────────────────────────────────────
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
@@ -61,47 +57,47 @@ class MyBot(commands.Bot):
             print(f"✅ {len(synced)} commandes synchronisées.")
         except Exception as e:
             print(f"❌ Erreur lors de la synchronisation : {e}")
+        # Application de la whitelist stricte
         await self.apply_command_permissions()
 
     async def apply_command_permissions(self):
+        """
+        Whitelist stricte :
+         - Si la commande (ou sa catégorie) est DANS permissions.json → seuls ces IDs y ont accès.
+         - Sinon → permissions=[] → invisible pour tous.
+        """
         permissions_config = charger_permissions()  # { "commande": [id,...], "categorie": [id,...] }
 
         for guild in self.guilds:
-            for command in self.tree.get_commands(guild=guild):
-                # 🔒 Masquer toutes les commandes par défaut
-                await command.edit(
-                    guild=guild,
-                    default_member_permissions=None,
-                    dm_permission=False
-                )
-
-                # ✅ Chercher les rôles/membres autorisés
-                allowed = permissions_config.get(command.name)
+            for cmd in self.tree.get_commands(guild=guild):
+                # clé = nom de la commande
+                allowed = permissions_config.get(cmd.name)
                 if allowed is None:
-                    cat = getattr(command, "category", None)
+                    # fallback : clé = catégorie
+                    cat = getattr(cmd, "category", None)
                     allowed = permissions_config.get(cat, [])
 
-                if allowed:
-                    perms: list[app_commands.AppCommandPermission] = []
-                    for id_str in allowed:
-                        id_int = int(id_str)
-                        if guild.get_role(id_int):
-                            perms.append(app_commands.AppCommandPermission(
-                                id=id_int,
-                                type=app_commands.AppCommandPermissionType.role,
-                                permission=True
-                            ))
-                        else:
-                            perms.append(app_commands.AppCommandPermission(
-                                id=id_int,
-                                type=app_commands.AppCommandPermissionType.user,
-                                permission=True
-                            ))
-                    await self.tree.set_permissions(command, guild=guild, permissions=perms)
-                else:
-                    await self.tree.set_permissions(command, guild=guild, permissions=[])
+                # construire la liste des overrides
+                perms: list[app_commands.AppCommandPermission] = []
+                for id_str in allowed:
+                    id_int = int(id_str)
+                    if guild.get_role(id_int) is not None:
+                        perms.append(app_commands.AppCommandPermission(
+                            id=id_int,
+                            type=app_commands.AppCommandPermissionType.role,
+                            permission=True
+                        ))
+                    else:
+                        perms.append(app_commands.AppCommandPermission(
+                            id=id_int,
+                            type=app_commands.AppCommandPermissionType.user,
+                            permission=True
+                        ))
 
-# ─── Instanciation et lancement du bot ─────────────────────────
+                # appliquer → vide = invisible pour tous
+                await self.tree.set_permissions(cmd, guild=guild, permissions=perms)
+
+# ─── Démarrage du bot ────────────────────────────────────────────
 bot = MyBot()
 
 if __name__ == "__main__":
