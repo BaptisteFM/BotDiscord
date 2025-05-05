@@ -103,6 +103,9 @@ async def load_cogs():
         print("✅ Checkin chargé")
     except Exception as e:
         print(f"❌ Erreur lors du chargement des Cogs : {e}")
+        import traceback
+        traceback.print_exc()
+
 
 # ───────────── Lancement du bot ─────────────
 if __name__ == "__main__":

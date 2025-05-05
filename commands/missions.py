@@ -108,7 +108,7 @@ class Missions(commands.Cog):
             await interaction.response.send_modal(modal)
         else:
             await interaction.response.send_message("❌ Index invalide.", ephemeral=True)
-    @app_commands
+    @app_commands.default_permissions(kick_members=True)
     @app_commands.command(name="supprimer_mission", description="Supprime une mission du jour.")
     async def supprimer_mission(self, interaction: discord.Interaction, index: int):
         if not await self.check_admin_salon(interaction, "supprimer_mission"):

@@ -1,5 +1,4 @@
 import discord
-from discord import Interaction
 from discord import app_commands
 from discord.ext import commands
 from utils.utils import (
@@ -527,7 +526,7 @@ class AdminCommands(commands.Cog):
                 await log_erreur(interaction.client, interaction.guild, f"forcer_validation: {e}")
 
 
-        # ───── Définir le salon de redirection pour la commande /proposer_sortie ─────
+    # ───── Définir le salon de redirection pour la commande /proposer_sortie ─────
     @app_commands.command(name="definir_salon_sortie", description="Définit le salon où sont envoyées les propositions de sorties.")
     @app_commands.default_permissions(administrator=True)
     async def definir_salon_sortie(self, interaction: discord.Interaction, salon: discord.TextChannel):
@@ -551,46 +550,18 @@ class AdminCommands(commands.Cog):
         await interaction.response.send_message(f"✅ Rôle pour les sorties défini : {role.mention}", ephemeral=True)
     
     # ───── Définir le rôle staff sortie qui peut fermer les sorties ─────
-    @app_commands.command(
-        name="definir_role_staff_sortie",
-        description="Définit le rôle staff pour gérer & fermer les sorties privées."
-    )
+    @app_commands.command(name="definir_role_staff_sortie", description="Définit le rôle staff qui peut fermer les sorties.")
     @app_commands.default_permissions(administrator=True)
-    async def definir_role_staff_sortie(self, interaction: discord.Interaction):
-        """Envoie un menu déroulant pour choisir le rôle staff sortie."""
-        class StaffSortieView(discord.ui.View):
-            def __init__(self):
-                super().__init__(timeout=60)
-                # menu qui liste tous les rôles du serveur
-                self.add_item(discord.ui.RoleSelect(
-                    placeholder="Sélectionne le rôle staff sortie…",
-                    custom_id="role_staff_sortie_select",
-                    max_values=1
-                ))
+    @app_commands.describe(role="Rôle staff qui peut fermer les sorties, et qui sera staff des sorties.")
+    async def definir_role_staff_sortie(self, interaction: discord.Interaction, role: discord.Role):
+        if not await is_admin(interaction.user):
+            return await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+        config = charger_config()
+        config["role_staff_sortie"] = str(role.id)
+        sauvegarder_config(config)
+        await interaction.response.send_message(f"✅ Rôle staff pour les sorties défini : {role.mention}", ephemeral=True)
 
-            @discord.ui.role_select(custom_id="role_staff_sortie_select")
-            async def on_role_select(self, interaction: discord.Interaction, select: discord.ui.RoleSelect):
-                role = select.values[0]
-                # on sauvegarde dans config.json, persistant au redémarrage
-                config = charger_config()
-                config["role_staff_sortie"] = str(role.id)
-                sauvegarder_config(config)
-                # désactive le menu pour éviter plusieurs sélections
-                for item in self.children:
-                    item.disabled = True
-                await interaction.response.edit_message(
-                    content=f"✅ Rôle **staff sortie** défini : {role.mention}",
-                    view=self
-                )
 
-        # envoi du menu éphémère
-        await interaction.response.send_message(
-            "👉 Clique dans la liste pour choisir le rôle **staff sortie**.",
-            view=StaffSortieView(),
-            ephemeral=True
-        )
-
-  
 
 async def setup_admin_commands(bot: commands.Bot):
     await bot.add_cog(AdminCommands(bot))
