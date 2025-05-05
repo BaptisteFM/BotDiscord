@@ -100,14 +100,17 @@ class UtilisateurCommands(commands.Cog):
     )
     @app_commands.check(check_verified)
     async def mission_du_jour(self, interaction: discord.Interaction):
-        if not await salon_est_autorise("mission_du_jour", interaction.channel_id, interaction.user):
-            return await interaction.response.send_message("❌ Commande non autorisée ici.", ephemeral=True)
+        # salon_est_autorise est SYNCHRONE !
+        if not salon_est_autorise("mission_du_jour", interaction.channel_id, interaction.user):
+            return await interaction.response.send_message(
+                "❌ Commande non autorisée ici.", ephemeral=True
+            )
 
         try:
             missions = charger_liste(MISSIONS_PATH)
             if not missions:
                 return await interaction.response.send_message(
-                    "ℹ️ Aucune mission n'a été écrite par le STAFF, c'est en cours de création !", ephemeral=True
+                    "ℹ️ Aucune mission définie par l’admin.", ephemeral=True
                 )
             mission = random.choice(missions)
             await interaction.response.send_message(
@@ -125,8 +128,10 @@ class UtilisateurCommands(commands.Cog):
     )
     @app_commands.check(check_verified)
     async def conseil_aleatoire(self, interaction: discord.Interaction):
-        if not await salon_est_autorise("conseil_aleatoire", interaction.channel_id, interaction.user):
-            return await interaction.response.send_message("❌ Commande non autorisée ici.", ephemeral=True)
+        if not salon_est_autorise("conseil_aleatoire", interaction.channel_id, interaction.user):
+            return await interaction.response.send_message(
+                "❌ Commande non autorisée ici.", ephemeral=True
+            )
 
         try:
             conseils = charger_liste(CONSEILS_PATH)
