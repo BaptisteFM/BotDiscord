@@ -66,6 +66,7 @@ class Checkin(commands.Cog):
             )
         await interaction.response.send_modal(CheckinModal())
 
+    @app_commands.default_permissions(kick_members=True)
     @app_commands.command(
         name="humeur_utilisateur",
         description="Voir l’historique d’humeur d’un utilisateur (staff uniquement)"

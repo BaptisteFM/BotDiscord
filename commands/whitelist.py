@@ -322,6 +322,7 @@ class Whitelist(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="rechercher_whitelist", description="Rechercher un membre")
+    @app_commands.default_permissions(administrator=True)
     async def rechercher_whitelist(self, interaction: discord.Interaction, query: str):
         if not (await is_admin(interaction.user) or role_autorise(interaction, "rechercher_whitelist")):
             return await interaction.response.send_message("❌ Pas la permission.", ephemeral=True)

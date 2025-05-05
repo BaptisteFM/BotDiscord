@@ -89,7 +89,7 @@ class Missions(commands.Cog):
         return True
 
     # ==== COMMANDES MISSIONS ====
-
+    @app_commands.default_permissions(kick_members=True)
     @app_commands.command(name="ajouter_mission", description="Ajoute une mission du jour.")
     async def ajouter_mission(self, interaction: discord.Interaction):
         if not await self.check_admin_salon(interaction, "ajouter_mission"):
@@ -97,6 +97,7 @@ class Missions(commands.Cog):
         modal = AjouterElementModal(self.bot, MISSIONS_PATH, "Mission", "Nouvelle mission", "Mission")
         await interaction.response.send_modal(modal)
 
+    @app_commands.default_permissions(kick_members=True)
     @app_commands.command(name="modifier_mission", description="Modifie une mission du jour.")
     async def modifier_mission(self, interaction: discord.Interaction, index: int):
         if not await self.check_admin_salon(interaction, "modifier_mission"):
@@ -107,7 +108,7 @@ class Missions(commands.Cog):
             await interaction.response.send_modal(modal)
         else:
             await interaction.response.send_message("❌ Index invalide.", ephemeral=True)
-
+    @app_commands
     @app_commands.command(name="supprimer_mission", description="Supprime une mission du jour.")
     async def supprimer_mission(self, interaction: discord.Interaction, index: int):
         if not await self.check_admin_salon(interaction, "supprimer_mission"):
@@ -119,7 +120,7 @@ class Missions(commands.Cog):
             await interaction.response.send_message(f"✅ Mission supprimée : {supprime}", ephemeral=True)
         else:
             await interaction.response.send_message("❌ Index invalide.", ephemeral=True)
-
+    @app_commands.default_permissions(kick_members=True)
     @app_commands.command(name="voir_missions", description="Liste les missions actuelles.")
     async def voir_missions(self, interaction: discord.Interaction):
         if not await self.check_admin_salon(interaction, "voir_missions"):
@@ -132,6 +133,7 @@ class Missions(commands.Cog):
 
     # ==== COMMANDES CONSEILS ====
 
+    @app_commands.default_permissions(kick_members=True)
     @app_commands.command(name="ajouter_conseil", description="Ajoute un conseil méthodo.")
     async def ajouter_conseil(self, interaction: discord.Interaction):
         if not await self.check_admin_salon(interaction, "ajouter_conseil"):
@@ -139,6 +141,7 @@ class Missions(commands.Cog):
         modal = AjouterElementModal(self.bot, CONSEILS_PATH, "Conseil", "Nouveau conseil", "Conseil")
         await interaction.response.send_modal(modal)
 
+    @app_commands.default_permissions(kick_members=True)
     @app_commands.command(name="modifier_conseil", description="Modifie un conseil méthodo.")
     async def modifier_conseil(self, interaction: discord.Interaction, index: int):
         if not await self.check_admin_salon(interaction, "modifier_conseil"):
@@ -150,6 +153,7 @@ class Missions(commands.Cog):
         else:
             await interaction.response.send_message("❌ Index invalide.", ephemeral=True)
 
+    @app_commands.default_permissions(kick_members=True)
     @app_commands.command(name="supprimer_conseil", description="Supprime un conseil méthodo.")
     async def supprimer_conseil(self, interaction: discord.Interaction, index: int):
         if not await self.check_admin_salon(interaction, "supprimer_conseil"):
@@ -162,6 +166,7 @@ class Missions(commands.Cog):
         else:
             await interaction.response.send_message("❌ Index invalide.", ephemeral=True)
 
+    @app_commands.default_permissions(kick_members=True)
     @app_commands.command(name="voir_conseils", description="Liste les conseils méthodo.")
     async def voir_conseils(self, interaction: discord.Interaction):
         if not await self.check_admin_salon(interaction, "voir_conseils"):
