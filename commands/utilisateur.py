@@ -5,6 +5,7 @@ import random
 import json
 import os
 from utils.utils import salon_est_autorise, get_or_create_role, charger_config, log_erreur, is_verified_user
+from commands.missions import charger_liste, MISSIONS_PATH, CONSEILS_PATH
 
 
 RESOURCES_PATH = "/data/ressources.json"
@@ -31,13 +32,7 @@ async def check_verified(interaction: discord.Interaction) -> bool:
 class UtilisateurCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.conseils = [
-            "🧠 Répète tes cours à haute voix comme si tu les expliquais à quelqu’un.",
-            "⏱️ Utilise la méthode Pomodoro pour gérer ton temps de travail.",
-            "📚 Teste-toi sur des QCM plutôt que de relire passivement.",
-            "📝 Fais des fiches synthétiques par thème plutôt que par ordre de cours.",
-            "🤝 Échange avec tes camarades – enseigner est la meilleure façon d'apprendre."
-        ]
+        
 
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, app_commands.CheckFailure):
@@ -72,16 +67,6 @@ class UtilisateurCommands(commands.Cog):
         except Exception as e:
             await log_erreur(self.bot, interaction.guild, f"Erreur dans /conseil_methodo : {e}")
 
-    @app_commands.command(name="conseil_aleatoire", description="Donne un conseil de travail aléatoire.")
-    @app_commands.check(check_verified)
-    async def conseil_aleatoire(self, interaction: discord.Interaction):
-        if not await self.check_salon(interaction, "conseil_aleatoire"):
-            return
-        try:
-            conseil = random.choice(self.conseils)
-            await interaction.response.send_message(f"💡 Conseil : **{conseil}**", ephemeral=True)
-        except Exception as e:
-            await log_erreur(self.bot, interaction.guild, f"Erreur dans /conseil_aleatoire : {e}")
 
     @app_commands.command(name="ressources", description="Liste des ressources utiles.")
     @app_commands.check(check_verified)
@@ -92,8 +77,7 @@ class UtilisateurCommands(commands.Cog):
         ressources = load_resources()
         if not ressources:
             return await interaction.response.send_message(
-                "ℹ️ Aucune ressource configurée pour le moment.", ephemeral=True
-            )
+                "ℹ️ Il n'y a pas de ressources pour le moment, le staff va s'en charger d'ici peu !", ephemeral=True )
 
         embed = discord.Embed(
             title="📚 Ressources utiles",
@@ -110,22 +94,55 @@ class UtilisateurCommands(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-    @app_commands.command(name="mission_du_jour", description="Obtiens un mini-défi pour la journée.")
+    @app_commands.command(
+        name="mission_du_jour",
+        description="Obtiens un mini-défi pour la journée."
+    )
     @app_commands.check(check_verified)
     async def mission_du_jour(self, interaction: discord.Interaction):
-        if not await self.check_salon(interaction, "mission_du_jour"):
-            return
+        if not await salon_est_autorise("mission_du_jour", interaction.channel_id, interaction.user):
+            return await interaction.response.send_message("❌ Commande non autorisée ici.", ephemeral=True)
+
         try:
-            missions = [
-                "📵 Évite les réseaux sociaux jusqu'à 20h.",
-                "🧘‍♂️ Fais 5 min de respiration avant de réviser.",
-                "📖 Relis 2 fiches avant le coucher.",
-                "💌 Envoie un message d'encouragement à un camarade.",
-                "🧹 Range ton espace de travail pour gagner en clarté."
-            ]
-            await interaction.response.send_message(f"🎯 Mission du jour : **{random.choice(missions)}**", ephemeral=True)
+            missions = charger_liste(MISSIONS_PATH)
+            if not missions:
+                return await interaction.response.send_message(
+                    "ℹ️ Aucune mission n'a été écrite par le STAFF, c'est en cours de création !", ephemeral=True
+                )
+            mission = random.choice(missions)
+            await interaction.response.send_message(
+                f"🎯 Mission du jour : **{mission}**", ephemeral=True
+            )
         except Exception as e:
-            await log_erreur(self.bot, interaction.guild, f"Erreur dans /mission_du_jour : {e}")
+            await interaction.response.send_message(
+                "❌ Erreur lors de la récupération de la mission.", ephemeral=True
+            )
+            await log_erreur(self.bot, interaction.guild, f"mission_du_jour: {e}")
+
+    @app_commands.command(
+        name="conseil_aleatoire",
+        description="Donne un conseil de travail aléatoire."
+    )
+    @app_commands.check(check_verified)
+    async def conseil_aleatoire(self, interaction: discord.Interaction):
+        if not await salon_est_autorise("conseil_aleatoire", interaction.channel_id, interaction.user):
+            return await interaction.response.send_message("❌ Commande non autorisée ici.", ephemeral=True)
+
+        try:
+            conseils = charger_liste(CONSEILS_PATH)
+            if not conseils:
+                return await interaction.response.send_message(
+                    "ℹ️ Aucun conseil défini par l’admin.", ephemeral=True
+                )
+            conseil = random.choice(conseils)
+            await interaction.response.send_message(
+                f"💡 Conseil : **{conseil}**", ephemeral=True
+            )
+        except Exception as e:
+            await interaction.response.send_message(
+                "❌ Erreur lors de la récupération du conseil.", ephemeral=True
+            )
+            await log_erreur(self.bot, interaction.guild, f"conseil_aleatoire: {e}")
 
 
     @app_commands.command(name="cours_aide", description="Demande d'aide sur un cours via modal.")
