@@ -5,9 +5,9 @@ from discord import app_commands
 from discord.ext import commands
 from utils.utils import is_admin, salon_est_autorise, log_erreur
 
-# → chemins vers les JSON
-MISSIONS_PATH  = "/data/missions_du_jour.json"
-CONSEILS_PATH  = "/data/conseils_methodo.json"
+# → Chemins vers les JSON
+MISSIONS_PATH = "/data/missions_du_jour.json"
+CONSEILS_PATH = "/data/conseils_methodo.json"
 
 def charger_liste(path: str) -> list[str]:
     if not os.path.exists(path):
@@ -23,7 +23,9 @@ def sauvegarder_liste(path: str, data: list[str]) -> None:
 class AjouterElementModal(discord.ui.Modal):
     def __init__(self, bot, path, label, titre, element_type):
         super().__init__(title=titre)
-        self.bot = bot; self.path = path; self.element_type = element_type
+        self.bot = bot
+        self.path = path
+        self.element_type = element_type
         self.contenu = discord.ui.TextInput(label=label, style=discord.TextStyle.paragraph)
         self.add_item(self.contenu)
 
@@ -40,9 +42,14 @@ class AjouterElementModal(discord.ui.Modal):
 class ModifierElementModal(discord.ui.Modal):
     def __init__(self, bot, path, index, ancien, element_type):
         super().__init__(title=f"Modifier {element_type}")
-        self.bot = bot; self.path = path; self.index = index; self.element_type = element_type
+        self.bot = bot
+        self.path = path
+        self.index = index
+        self.element_type = element_type
         self.contenu = discord.ui.TextInput(
-            label=f"{element_type} #{index}", style=discord.TextStyle.paragraph, default=ancien
+            label=f"{element_type} sélectionné", 
+            style=discord.TextStyle.paragraph, 
+            default=ancien
         )
         self.add_item(self.contenu)
 
@@ -69,7 +76,7 @@ class Missions(commands.Cog):
             return False
         return True
 
-    # ==== MISSIONS ====
+    # ==== MISSIONS CRUD ====
 
     @app_commands.command(name="ajouter_mission", description="Ajoute une mission du jour.")
     @app_commands.default_permissions(kick_members=True)
@@ -82,51 +89,50 @@ class Missions(commands.Cog):
 
     @app_commands.command(name="modifier_mission", description="Modifie une mission du jour.")
     @app_commands.default_permissions(kick_members=True)
-    @app_commands.describe(index="Index de la mission à modifier (voir /voir_missions)")
-    async def modifier_mission(self, interaction: discord.Interaction, index: int):
+    @app_commands.describe(mission="Choisissez la mission à modifier")
+    async def modifier_mission(self, interaction: discord.Interaction, mission: str):
         if not await self.check_admin_salon(interaction, "modifier_mission"):
             return
         data = charger_liste(MISSIONS_PATH)
-        if 0 <= index < len(data):
-            await interaction.response.send_modal(
-                ModifierElementModal(self.bot, MISSIONS_PATH, index, data[index], "Mission")
-            )
-        else:
-            await interaction.response.send_message("❌ Index invalide.", ephemeral=True)
+        try:
+            index = data.index(mission)
+        except ValueError:
+            return await interaction.response.send_message("❌ Mission introuvable.", ephemeral=True)
 
-    @modifier_mission.autocomplete("index")
+        await interaction.response.send_modal(
+            ModifierElementModal(self.bot, MISSIONS_PATH, index, mission, "Mission")
+        )
+
+    @modifier_mission.autocomplete("mission")
     async def modifier_mission_autocomplete(self, interaction: discord.Interaction, current: str):
         data = charger_liste(MISSIONS_PATH)
-        choices = [
-            app_commands.Choice(name=f"{i}. {m}", value=i)
-            for i, m in enumerate(data)
-            if current in str(i) or current.lower() in m.lower()
-        ]
-        return choices[:25]
+        return [
+            app_commands.Choice(name=m if len(m) < 100 else m[:97]+"...", value=m)
+            for m in data
+            if current.lower() in m.lower()
+        ][:25]
 
     @app_commands.command(name="supprimer_mission", description="Supprime une mission du jour.")
     @app_commands.default_permissions(kick_members=True)
-    @app_commands.describe(index="Index de la mission à supprimer (voir /voir_missions)")
-    async def supprimer_mission(self, interaction: discord.Interaction, index: int):
+    @app_commands.describe(mission="Choisissez la mission à supprimer")
+    async def supprimer_mission(self, interaction: discord.Interaction, mission: str):
         if not await self.check_admin_salon(interaction, "supprimer_mission"):
             return
         data = charger_liste(MISSIONS_PATH)
-        if 0 <= index < len(data):
-            removed = data.pop(index)
-            sauvegarder_liste(MISSIONS_PATH, data)
-            await interaction.response.send_message(f"✅ Mission supprimée : **{removed}**", ephemeral=True)
-        else:
-            await interaction.response.send_message("❌ Index invalide.", ephemeral=True)
+        if mission not in data:
+            return await interaction.response.send_message("❌ Mission introuvable.", ephemeral=True)
+        data.remove(mission)
+        sauvegarder_liste(MISSIONS_PATH, data)
+        await interaction.response.send_message(f"✅ Mission supprimée : **{mission}**", ephemeral=True)
 
-    @supprimer_mission.autocomplete("index")
+    @supprimer_mission.autocomplete("mission")
     async def supprimer_mission_autocomplete(self, interaction: discord.Interaction, current: str):
         data = charger_liste(MISSIONS_PATH)
-        choices = [
-            app_commands.Choice(name=f"{i}. {m}", value=i)
-            for i, m in enumerate(data)
-            if current in str(i) or current.lower() in m.lower()
-        ]
-        return choices[:25]
+        return [
+            app_commands.Choice(name=m if len(m) < 100 else m[:97]+"...", value=m)
+            for m in data
+            if current.lower() in m.lower()
+        ][:25]
 
     @app_commands.command(name="voir_missions", description="Liste les missions actuelles.")
     @app_commands.default_permissions(kick_members=True)
@@ -136,10 +142,10 @@ class Missions(commands.Cog):
         data = charger_liste(MISSIONS_PATH)
         if not data:
             return await interaction.response.send_message("ℹ️ Aucune mission définie.", ephemeral=True)
-        texte = "\n".join(f"{i}. {m}" for i, m in enumerate(data))
+        texte = "\n".join(f"• {m}" for m in data)
         await interaction.response.send_message(f"📋 Missions du jour :\n{texte}", ephemeral=True)
 
-    # ==== CONSEILS ====
+    # ==== CONSEILS CRUD ====
 
     @app_commands.command(name="ajouter_conseil", description="Ajoute un conseil méthodo.")
     @app_commands.default_permissions(kick_members=True)
@@ -152,51 +158,50 @@ class Missions(commands.Cog):
 
     @app_commands.command(name="modifier_conseil", description="Modifie un conseil méthodo.")
     @app_commands.default_permissions(kick_members=True)
-    @app_commands.describe(index="Index du conseil à modifier (voir /voir_conseils)")
-    async def modifier_conseil(self, interaction: discord.Interaction, index: int):
+    @app_commands.describe(conseil="Choisissez le conseil à modifier")
+    async def modifier_conseil(self, interaction: discord.Interaction, conseil: str):
         if not await self.check_admin_salon(interaction, "modifier_conseil"):
             return
         data = charger_liste(CONSEILS_PATH)
-        if 0 <= index < len(data):
-            await interaction.response.send_modal(
-                ModifierElementModal(self.bot, CONSEILS_PATH, index, data[index], "Conseil")
-            )
-        else:
-            await interaction.response.send_message("❌ Index invalide.", ephemeral=True)
+        try:
+            index = data.index(conseil)
+        except ValueError:
+            return await interaction.response.send_message("❌ Conseil introuvable.", ephemeral=True)
 
-    @modifier_conseil.autocomplete("index")
+        await interaction.response.send_modal(
+            ModifierElementModal(self.bot, CONSEILS_PATH, index, conseil, "Conseil")
+        )
+
+    @modifier_conseil.autocomplete("conseil")
     async def modifier_conseil_autocomplete(self, interaction: discord.Interaction, current: str):
         data = charger_liste(CONSEILS_PATH)
-        choices = [
-            app_commands.Choice(name=f"{i}. {c}", value=i)
-            for i, c in enumerate(data)
-            if current in str(i) or current.lower() in c.lower()
-        ]
-        return choices[:25]
+        return [
+            app_commands.Choice(name=c if len(c) < 100 else c[:97]+"...", value=c)
+            for c in data
+            if current.lower() in c.lower()
+        ][:25]
 
     @app_commands.command(name="supprimer_conseil", description="Supprime un conseil méthodo.")
     @app_commands.default_permissions(kick_members=True)
-    @app_commands.describe(index="Index du conseil à supprimer (voir /voir_conseils)")
-    async def supprimer_conseil(self, interaction: discord.Interaction, index: int):
+    @app_commands.describe(conseil="Choisissez le conseil à supprimer")
+    async def supprimer_conseil(self, interaction: discord.Interaction, conseil: str):
         if not await self.check_admin_salon(interaction, "supprimer_conseil"):
             return
         data = charger_liste(CONSEILS_PATH)
-        if 0 <= index < len(data):
-            removed = data.pop(index)
-            sauvegarder_liste(CONSEILS_PATH, data)
-            await interaction.response.send_message(f"✅ Conseil supprimé : **{removed}**", ephemeral=True)
-        else:
-            await interaction.response.send_message("❌ Index invalide.", ephemeral=True)
+        if conseil not in data:
+            return await interaction.response.send_message("❌ Conseil introuvable.", ephemeral=True)
+        data.remove(conseil)
+        sauvegarder_liste(CONSEILS_PATH, data)
+        await interaction.response.send_message(f"✅ Conseil supprimé : **{conseil}**", ephemeral=True)
 
-    @supprimer_conseil.autocomplete("index")
+    @supprimer_conseil.autocomplete("conseil")
     async def supprimer_conseil_autocomplete(self, interaction: discord.Interaction, current: str):
         data = charger_liste(CONSEILS_PATH)
-        choices = [
-            app_commands.Choice(name=f"{i}. {c}", value=i)
-            for i, c in enumerate(data)
-            if current in str(i) or current.lower() in c.lower()
-        ]
-        return choices[:25]
+        return [
+            app_commands.Choice(name=c if len(c) < 100 else c[:97]+"...", value=c)
+            for c in data
+            if current.lower() in c.lower()
+        ][:25]
 
 async def setup(bot):
     await bot.add_cog(Missions(bot))
