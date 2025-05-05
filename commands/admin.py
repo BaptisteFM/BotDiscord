@@ -550,7 +550,7 @@ class AdminCommands(commands.Cog):
         sauvegarder_config(config)
         await interaction.response.send_message(f"✅ Rôle pour les sorties défini : {role.mention}", ephemeral=True)
     
-
+    # ───── Définir le rôle staff sortie qui peut fermer les sorties ─────
     @app_commands.command(
         name="definir_role_staff_sortie",
         description="Définit le rôle staff pour gérer & fermer les sorties privées."
