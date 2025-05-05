@@ -66,7 +66,6 @@ async def load_cogs():
         from commands.admin import setup_admin_commands
         from commands.utilisateur import setup_user_commands
         from commands.support import setup_support_commands
-        from commands.test_command import setup as setup_test
         from commands.events import setup as setup_events
         from commands import whitelist
         from commands import loisir
@@ -74,7 +73,6 @@ async def load_cogs():
         from commands import reaction_roles
         from commands import checkin
 
-        await setup_test(bot)
         await setup_admin_commands(bot)
         print("✅ AdminCommands chargé")
 

@@ -2,7 +2,26 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import random
+import json
+import os
 from utils.utils import salon_est_autorise, get_or_create_role, charger_config, log_erreur, is_verified_user
+
+
+RESOURCES_PATH = "/data/ressources.json"
+
+def load_resources() -> list[dict]:
+    """Retourne la liste des ressources [{name, url}, …]."""
+    if not os.path.exists(RESOURCES_PATH):
+        return []
+    with open(RESOURCES_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_resources(resources: list[dict]) -> None:
+    """Sauvegarde la liste des ressources."""
+    os.makedirs(os.path.dirname(RESOURCES_PATH), exist_ok=True)
+    with open(RESOURCES_PATH, "w", encoding="utf-8") as f:
+        json.dump(resources, f, indent=4, ensure_ascii=False)
+
 
 async def check_verified(interaction: discord.Interaction) -> bool:
     if await is_verified_user(interaction.user):
@@ -69,18 +88,27 @@ class UtilisateurCommands(commands.Cog):
     async def ressources(self, interaction: discord.Interaction):
         if not await self.check_salon(interaction, "ressources"):
             return
-        try:
-            embed = discord.Embed(
-                title="Ressources utiles",
-                description="Voici quelques liens et documents qui pourraient t'aider :",
-                color=discord.Color.green()
+
+        ressources = load_resources()
+        if not ressources:
+            return await interaction.response.send_message(
+                "ℹ️ Aucune ressource configurée pour le moment.", ephemeral=True
             )
-            embed.add_field(name="🔗 Fiches Méthodo", value="[Accéder](https://exemple.com/fiches)", inline=False)
-            embed.add_field(name="📝 Tableur de planning", value="[Google Sheets](https://docs.google.com)", inline=False)
-            embed.add_field(name="🎧 Podcast Motivation", value="[Podcast X](https://podcast.com)", inline=False)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-        except Exception as e:
-            await log_erreur(self.bot, interaction.guild, f"Erreur dans /ressources : {e}")
+
+        embed = discord.Embed(
+            title="📚 Ressources utiles",
+            description="Voici la liste des ressources disponibles :",
+            color=discord.Color.green()
+        )
+        for i, entry in enumerate(ressources):
+            embed.add_field(
+                name=f"{i}. {entry['name']}",
+                value=entry["url"],
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
     @app_commands.command(name="mission_du_jour", description="Obtiens un mini-défi pour la journée.")
     @app_commands.check(check_verified)

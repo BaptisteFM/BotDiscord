@@ -22,6 +22,22 @@ import os
 import asyncio
 from datetime import datetime
 
+
+RESOURCES_PATH = "/data/ressources.json"
+
+def load_resources() -> list[dict]:
+    if not os.path.exists(RESOURCES_PATH):
+        return []
+    with open(RESOURCES_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_resources(resources: list[dict]) -> None:
+    os.makedirs(os.path.dirname(RESOURCES_PATH), exist_ok=True)
+    with open(RESOURCES_PATH, "w", encoding="utf-8") as f:
+        json.dump(resources, f, indent=4, ensure_ascii=False)
+
+
+
 class AdminCommands(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -560,6 +576,76 @@ class AdminCommands(commands.Cog):
         config["role_staff_sortie"] = str(role.id)
         sauvegarder_config(config)
         await interaction.response.send_message(f"✅ Rôle staff pour les sorties défini : {role.mention}", ephemeral=True)
+    
+    # ───── Voir ressources ───────────────────────────────────────────────
+    @app_commands.command(
+        name="voir_ressources",
+        description="(Admin) Affiche la liste des ressources configurées."
+    )
+    @app_commands.default_permissions(administrator=True)
+    async def voir_ressources(self, interaction: discord.Interaction):
+        ressources = load_resources()
+        if not ressources:
+            return await interaction.response.send_message(
+                "ℹ️ Aucune ressource enregistrée.", ephemeral=True
+            )
+
+        texte = "\n".join(f"{i}. {e['name']} — {e['url']}" for i, e in enumerate(ressources))
+        embed = discord.Embed(
+            title="🔧 Ressources (admin)",
+            description=texte,
+            color=discord.Color.blue()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ───── Ajoute une ressource ────────────────────────────────
+    @app_commands.command(
+        name="ajouter_ressource",
+        description="(Admin) Ajoute une ressource pour la commande /ressources."
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        name="Titre de la ressource",
+        url="URL ou lien markdown pour la ressource"
+    )
+    async def ajouter_ressource(
+        self,
+        interaction: discord.Interaction,
+        name: str,
+        url: str
+    ):
+        ressources = load_resources()
+        ressources.append({"name": name, "url": url})
+        save_resources(ressources)
+        await interaction.response.send_message(
+            f"✅ Ressource ajoutée : **{name}**", ephemeral=True
+        )
+
+    # ───── Supprimer une ressource ────────────────────────────────────
+    @app_commands.command(
+        name="supprimer_ressource",
+        description="(Admin) Supprime la ressource d’index donné (0-based)."
+    )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(
+        index="Index de la ressource tel que listé par /voir_ressources"
+    )
+    async def supprimer_ressource(
+        self,
+        interaction: discord.Interaction,
+        index: int
+    ):
+        ressources = load_resources()
+        if index < 0 or index >= len(ressources):
+            return await interaction.response.send_message(
+                "❌ Index invalide.", ephemeral=True
+            )
+        removed = ressources.pop(index)
+        save_resources(ressources)
+        await interaction.response.send_message(
+            f"✅ Ressource supprimée : **{removed['name']}**", ephemeral=True
+        )
+
 
 
 
