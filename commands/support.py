@@ -140,43 +140,65 @@ class CreationSalonPriveView(discord.ui.View):
 
     @discord.ui.button(label="Créer un salon privé", style=discord.ButtonStyle.primary)
     async def creer_salon_prive(self, interaction: discord.Interaction, button: discord.ui.Button):
+        guild = interaction.guild
         config = charger_config()
-        role_id = config.get("role_besoin_d_en_parler")
-        if not role_id:
+
+        # Rôle intervenant (existant) et nouveau rôle "aideur_cours"
+        intervenant_id = config.get("role_besoin_d_en_parler")
+        aideur_id      = config.get("role_aideur_cours")
+
+        if not intervenant_id:
             return await interaction.response.send_message(
                 "❌ Le rôle intervenant n'est pas configuré.", ephemeral=True
             )
-        role_intervenant = interaction.guild.get_role(int(role_id))
+
+        role_intervenant = guild.get_role(int(intervenant_id))
+        role_aideur      = guild.get_role(int(aideur_id)) if aideur_id else None
+
         if role_intervenant not in interaction.user.roles:
             return await interaction.response.send_message(
-                "❌ Vous n'êtes pas autorisé à créer un salon privé pour cette demande.", ephemeral=True
+                "❌ Vous n'êtes pas autorisé à créer un salon privé pour cette demande.",
+                ephemeral=True
             )
+
         try:
+            # Création de la catégorie avec permissions
             category_name = f"{self.requester.display_name} - {self.demande_title}"
             overwrites = {
-                interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                guild.default_role: discord.PermissionOverwrite(read_messages=False),
                 self.requester: discord.PermissionOverwrite(read_messages=True, send_messages=True),
                 role_intervenant: discord.PermissionOverwrite(read_messages=True, send_messages=True)
             }
-            category = await interaction.guild.create_category(category_name, overwrites=overwrites)
-            text_channel = await interaction.guild.create_text_channel("discussion", category=category)
-            voice_channel = await interaction.guild.create_voice_channel("support-voice", category=category)
+            if role_aideur:
+                overwrites[role_aideur] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
-            clarif_message = (
-                f"{self.requester.mention}, ce salon a été créé spécialement pour toi."
-                " N'hésite pas à détailler un peu plus ton besoin si nécessaire !"
+            category = await guild.create_category(name=category_name, overwrites=overwrites)
+            text_channel = await guild.create_text_channel("discussion", category=category)
+            await guild.create_voice_channel("support-voice", category=category)
+
+            # Prépare le message : ping du rôle aideur puis mention du demandeur
+            clarif_message = ""
+            if role_aideur:
+                clarif_message += f"{role_aideur.mention}  "
+            clarif_message += (
+                f"{self.requester.mention}, ce salon a été créé spécialement pour toi. "
+                "N'hésite pas à détailler un peu plus ton besoin si nécessaire !"
             )
+
+            # Envoi dans le salon texte avec la vue de suppression
             suppression_view = SuppressionSalonView(category=category, role_intervenant=role_intervenant)
             await text_channel.send(clarif_message, view=suppression_view)
 
             await interaction.response.send_message(
                 "✅ Salon privé créé avec succès.", ephemeral=True
             )
+
         except Exception as e:
-            await log_erreur(interaction.client, interaction.guild, f"Erreur création salon privé: {e}")
+            await log_erreur(interaction.client, guild, f"Erreur création salon privé: {e}")
             await interaction.response.send_message(
                 "❌ Une erreur est survenue lors de la création du salon privé.", ephemeral=True
             )
+
 
 # Vue pour supprimer la catégorie privée (inchangé)
 class SuppressionSalonView(discord.ui.View):
@@ -266,6 +288,29 @@ class SupportCommands(commands.Cog):
         await interaction.response.send_message(
             f"✅ Rôle pour 'besoin d'en parler' défini : {role.mention}", ephemeral=True
         )
+    
+    @app_commands.command(name="definir_role_aideur_cours",description="Définit le rôle qui sera pingé pour l’aide aux cours privés.")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.describe(role="Rôle Discord qui recevra le ping pour l’aide aux cours")
+    async def definir_role_aideur_cours(
+        self,
+        interaction: discord.Interaction,
+        role: discord.Role
+    ):
+        # Vérif admin (optionnel si tu as déjà is_admin dans default_permissions)
+        if not await is_admin(interaction.user):
+            return await interaction.response.send_message(
+                "❌ Réservé aux administrateurs.", ephemeral=True
+            )
+
+        cfg = charger_config()
+        cfg["role_aideur_cours"] = str(role.id)
+        sauvegarder_config(cfg)
+        await interaction.response.send_message(
+            f"✅ Rôle **aideur cours** défini : {role.mention}",
+            ephemeral=True
+        )
+
 
 async def setup_support_commands(bot: commands.Bot):
     await bot.add_cog(SupportCommands(bot))
